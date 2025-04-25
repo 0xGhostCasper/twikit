@@ -1914,8 +1914,14 @@ class Client:
         if not instructions_:
             return Result([])
         instructions = instructions_[0]
-
+        
+        pinned_item = [x for x in instructions if x.get('type') == 'TimelinePinEntry']
+        pinned_item_list = pinned_item if pinned_item else []
+        pinned_item = pinned_item_list[0]['entry'] if pinned_item else None
+        
         items = instructions[-1]['entries']
+        if items and pinned_item is not None:
+            items.insert(0, pinned_item)
         next_cursor = items[-1]['content']['value']
         previous_cursor = items[-2]['content']['value']
 
