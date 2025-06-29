@@ -134,7 +134,10 @@ class Client:
         ":meta private:"
         headers = kwargs.pop("headers", {})
 
-        if not self.client_transaction.home_page_response:
+        if (
+            not self.client_transaction.home_page_response
+            or not self.client_transaction.key
+        ):
             cookies_backup = self.get_cookies().copy()
             ct_headers = {
                 "Accept-Language": f'{self.language},{self.language.split("-")[0]};q=0.9',
