@@ -135,8 +135,8 @@ class Client:
         headers = kwargs.pop("headers", {})
 
         if (
-            not self.client_transaction.home_page_response
-            or not self.client_transaction.key
+            not self.client_transaction.key
+            or not self.client_transaction.home_page_response
         ):
             cookies_backup = self.get_cookies().copy()
             ct_headers = {
@@ -147,6 +147,12 @@ class Client:
             }
             await self.client_transaction.init(self.http, ct_headers)
             self.set_cookies(cookies_backup, clear_cookies=True)
+
+        if not self.client_transaction.key:
+            raise TwitterException(
+                "Client transaction key is not set. "
+                "Please ensure you are logged in or have initialized the client correctly."
+            )
 
         tid = self.client_transaction.generate_transaction_id(
             method=method, path=urlparse(url).path
