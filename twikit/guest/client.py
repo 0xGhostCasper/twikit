@@ -6,7 +6,7 @@ from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from httpx import AsyncClient, AsyncHTTPTransport, Response
+from httpx import AsyncClient, AsyncHTTPTransport, Response, Cookies
 from httpx._utils import URLPattern
 
 from ..client.gql import GQLClient
@@ -83,7 +83,8 @@ class GuestClient:
             )
             warnings.warn(message)
 
-        self.http = AsyncClient(proxy=proxy, **kwargs)
+        # Initialize with an isolated cookie jar to prevent cookie conflicts
+        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), **kwargs)
         self.language = language
         self.proxy = proxy
 
@@ -107,7 +108,9 @@ class GuestClient:
         headers = kwargs.pop('headers', {})
 
         if not self.client_transaction.home_page_response:
-            cookies_backup = dict(self.http.cookies).copy()
+            # Create a backup of current cookies using proper cookie jar
+            cookies_backup = Cookies()
+            cookies_backup.update(self.http.cookies)
             ct_headers = {
                 'Accept-Language': f'{self.language},{self.language.split("-")[0]};q=0.9',
                 'Cache-Control': 'no-cache',
@@ -115,7 +118,9 @@ class GuestClient:
                 'User-Agent': self._user_agent
             }
             await self.client_transaction.init(self.http, ct_headers)
-            self.http.cookies = cookies_backup
+            # Restore cookies using proper cookie jar
+            self.http.cookies.clear()
+            self.http.cookies.update(cookies_backup)
 
         tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
         headers['X-Client-Transaction-Id'] = tid

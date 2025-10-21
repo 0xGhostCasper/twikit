@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import filetype
 import pyotp
-from httpx import AsyncClient, AsyncHTTPTransport, Response
+from httpx import AsyncClient, AsyncHTTPTransport, Response, Cookies
 from httpx._utils import URLPattern
 
 from .._captcha import Capsolver
@@ -104,7 +104,8 @@ class Client:
             )
             warnings.warn(message)
 
-        self.http = AsyncClient(proxy=proxy, **kwargs)
+        # Initialize with an isolated cookie jar to prevent cookie conflicts
+        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), **kwargs)
         self.language = language
         self.proxy = proxy
         self.captcha_solver = captcha_solver
@@ -138,7 +139,9 @@ class Client:
             not self.client_transaction.key
             or not self.client_transaction.home_page_response
         ):
-            cookies_backup = self.get_cookies().copy()
+            # Create a backup of current cookies using proper cookie jar
+            cookies_backup = Cookies()
+            cookies_backup.update(self.http.cookies)
             ct_headers = {
                 "Accept-Language": f'{self.language},{self.language.split("-")[0]};q=0.9',
                 "Cache-Control": "no-cache",
@@ -146,7 +149,9 @@ class Client:
                 "User-Agent": self._user_agent,
             }
             await self.client_transaction.init(self.http, ct_headers)
-            self.set_cookies(cookies_backup, clear_cookies=True)
+            # Restore cookies using proper cookie jar
+            self.http.cookies.clear()
+            self.http.cookies.update(cookies_backup)
 
         if not self.client_transaction.key:
             raise TwitterException(
@@ -159,7 +164,9 @@ class Client:
         )
         headers["X-Client-Transaction-Id"] = tid
 
-        cookies_backup = self.get_cookies().copy()
+        # Create a backup of current cookies using proper cookie jar
+        cookies_backup = Cookies()
+        cookies_backup.update(self.http.cookies)
         response = await self.http.request(method, url, headers=headers, **kwargs)
         self._remove_duplicate_ct0_cookie()
 
@@ -184,7 +191,9 @@ class Client:
                     )
                 if auto_unlock:
                     await self.unlock()
-                    self.set_cookies(cookies_backup, clear_cookies=True)
+                    # Restore cookies using proper cookie jar
+                    self.http.cookies.clear()
+                    self.http.cookies.update(cookies_backup)
                     response = await self.http.request(method, url, **kwargs)
                     self._remove_duplicate_ct0_cookie()
                     try:
@@ -539,7 +548,9 @@ class Client:
                 html.authenticity_token, html.assignment_token, ui_metrics=True
             )
 
-        cookies_backup = self.get_cookies().copy()
+        # Create a backup of current cookies using proper cookie jar
+        cookies_backup = Cookies()
+        cookies_backup.update(self.http.cookies)
         max_unlock_attempts = self.captcha_solver.max_attempts
         attempt = 0
         while attempt < max_unlock_attempts:
@@ -552,7 +563,9 @@ class Client:
             if result["errorId"] == 1:
                 continue
 
-            self.set_cookies(cookies_backup, clear_cookies=True)
+            # Restore cookies using proper cookie jar
+            self.http.cookies.clear()
+            self.http.cookies.update(cookies_backup)
             response, html = await self.captcha_solver.confirm_unlock(
                 html.authenticity_token,
                 html.assignment_token,
@@ -587,7 +600,11 @@ class Client:
         .load_cookies
         .save_cookies
         """
-        return dict(self.http.cookies)
+        # Convert cookie jar to dict for serialization
+        cookies_dict = {}
+        for cookie in self.http.cookies.jar:
+            cookies_dict[cookie.name] = cookie.value
+        return cookies_dict
 
     def save_cookies(self, path: str) -> None:
         """
@@ -636,7 +653,9 @@ class Client:
         """
         if clear_cookies:
             self.http.cookies.clear()
-        self.http.cookies.update(cookies)
+        # Set cookies properly using the cookie jar
+        for name, value in cookies.items():
+            self.http.cookies.set(name, value)
 
     def load_cookies(self, path: str) -> None:
         """
