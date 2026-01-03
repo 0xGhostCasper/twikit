@@ -2805,8 +2805,10 @@ class Client:
                 return []
             # Recall the method again, as the trend information
             # may not be returned due to a Twitter error.
+            # Pass retry=False to prevent infinite recursion if Twitter
+            # keeps returning empty results.
             return await self.get_trends(
-                category, count, retry, additional_request_params
+                category, count, False, additional_request_params
             )
 
         items = entries[-1]["content"]["timelineModule"]["items"]
