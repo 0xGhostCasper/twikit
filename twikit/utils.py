@@ -111,19 +111,27 @@ class Flow:
 def find_dict(obj: list | dict, key: str | int, find_one: bool = False) -> list[Any]:
     """
     Retrieves elements from a nested dictionary.
+    Uses iterative approach with a stack to avoid recursion depth issues
+    when processing deeply nested Twitter API responses.
     """
     results = []
-    if isinstance(obj, dict):
-        if key in obj:
-            results.append(obj.get(key))
-            if find_one:
-                return results
-    if isinstance(obj, (list, dict)):
-        for elem in (obj if isinstance(obj, list) else obj.values()):
-            r = find_dict(elem, key, find_one)
-            results += r
-            if r and find_one:
-                return results
+    # Use a stack for iterative traversal instead of recursion
+    stack = [obj]
+
+    while stack:
+        current = stack.pop()
+
+        if isinstance(current, dict):
+            if key in current:
+                results.append(current.get(key))
+                if find_one:
+                    return results
+            # Add all dict values to stack for processing
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            # Add all list items to stack for processing
+            stack.extend(current)
+
     return results
 
 
