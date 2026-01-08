@@ -23,6 +23,7 @@ from ..errors import (
     AccountLocked,
     AccountSuspended,
     BadRequest,
+    CommunityNotFound,
     CouldNotTweet,
     Forbidden,
     InvalidMedia,
@@ -4088,16 +4089,26 @@ class Client:
 
         Parameters
         ----------
-        list_id : :class:`str`
+        community_id : :class:`str`
             The ID of the community to retrieve.
 
         Returns
         -------
         :class:`Community`
             Community object.
+
+        Raises
+        ------
+        :class:`CommunityNotFound`
+            If the community does not exist or is unavailable.
         """
         response, _ = await self.gql.community_query(community_id)
-        community_data = find_dict(response, "result", find_one=True)[0]
+        results = find_dict(response, "result", find_one=True)
+        if not results:
+            raise CommunityNotFound(f"Community not found: {community_id}")
+        community_data = results[0]
+        if not isinstance(community_data, dict) or "rest_id" not in community_data:
+            raise CommunityNotFound(f"Community not found or unavailable: {community_id}")
         return Community(self, community_data)
 
     async def get_community_tweets(

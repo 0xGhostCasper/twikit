@@ -94,6 +94,11 @@ class AccountLocked(TwitterException):
     Exception raised when the account is locked (very likey is Arkose challenge).
     """
 
+class CommunityNotFound(TwitterException):
+    """
+    Exception raised when a community does not exist or is unavailable.
+    """
+
 ERROR_CODE_TO_EXCEPTION: dict[int, TwitterException] = {
     187: DuplicateTweet,
     324: InvalidMedia
