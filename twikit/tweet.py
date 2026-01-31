@@ -546,6 +546,41 @@ class Tweet:
         """
         return await self._client.get_similar_tweets(self.id)
 
+    async def get_quotes(
+        self, count: int = 20, cursor: str | None = None
+    ) -> Result[Tweet]:
+        """
+        Retrieve tweets that quote this tweet.
+
+        Parameters
+        ----------
+        count : :class:`int`, default=20
+            The number of quote tweets to retrieve per request (1-20).
+        cursor : :class:`str`, default=None
+            Token to retrieve more quote tweets.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result containing tweets that quote this tweet.
+
+        Examples
+        --------
+        >>> quotes = await tweet.get_quotes()
+        >>> for quote in quotes:
+        ...     print(quote)
+        <Tweet id="...">
+        <Tweet id="...">
+
+        >>> # Retrieve more quotes
+        >>> more_quotes = await quotes.next()
+        >>> for quote in more_quotes:
+        ...     print(quote)
+        <Tweet id="...">
+        <Tweet id="...">
+        """
+        return await self._client.get_tweet_quotes(self.id, count, cursor)
+
     async def update(self) -> None:
         new = await self._client.get_tweet_by_id(self.id)
         self.__dict__.update(new.__dict__)

@@ -1997,6 +1997,48 @@ class Client:
             tweet_id, count, cursor, self.gql.favoriters
         )
 
+    async def get_tweet_quotes(
+        self,
+        tweet_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Retrieve tweets that quote a specific tweet.
+
+        Parameters
+        ----------
+        tweet_id : :class:`str`
+            The ID of the tweet to get quotes for.
+        count : :class:`int`, default=20
+            The number of quote tweets to retrieve per request (1-20).
+        cursor : :class:`str`, default=None
+            Token to retrieve more quote tweets.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result containing tweets that quote the specified tweet.
+
+        Examples
+        --------
+        >>> tweet_id = '...'
+        >>> quotes = await client.get_tweet_quotes(tweet_id)
+        >>> for quote in quotes:
+        ...     print(quote)
+        <Tweet id="...">
+        <Tweet id="...">
+
+        >>> # Retrieve more quotes
+        >>> more_quotes = await quotes.next()
+        >>> for quote in more_quotes:
+        ...     print(quote)
+        <Tweet id="...">
+        <Tweet id="...">
+        """
+        query = f"quoted_tweet_id:{tweet_id}"
+        return await self.search_tweet(query, "Latest", count, cursor)
+
     async def get_community_note(self, note_id: str) -> CommunityNote:
         """
         Fetches a community note by ID.
