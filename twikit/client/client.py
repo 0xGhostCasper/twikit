@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import os
+import time
 
 import warnings
+
+# Debug logger for pagination investigation
+_debug_logger = logging.getLogger("twikit.debug")
+_debug_logger.setLevel(logging.DEBUG)
 from functools import partial
 from typing import Any, AsyncGenerator, Literal
 from urllib.parse import urlparse
@@ -170,7 +176,33 @@ class Client:
         # Create a backup of current cookies using proper cookie jar
         cookies_backup = Cookies()
         cookies_backup.update(self.http.cookies)
+
+        # Debug logging for pagination investigation
+        _start_time = time.perf_counter()
+        _cursor_in_request = None
+        if "params" in kwargs:
+            _params = kwargs["params"]
+            if isinstance(_params, dict) and "variables" in _params:
+                try:
+                    _vars = json.loads(_params["variables"]) if isinstance(_params["variables"], str) else _params["variables"]
+                    _cursor_in_request = _vars.get("cursor")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        _debug_logger.debug(
+            "HTTP %s %s (cursor=%s)",
+            method,
+            url.split("/")[-1][:30],
+            _cursor_in_request[:30] if _cursor_in_request else None,
+        )
+
         response = await self.http.request(method, url, headers=headers, **kwargs)
+
+        _elapsed = (time.perf_counter() - _start_time) * 1000
+        _debug_logger.debug(
+            "HTTP response: status=%d, elapsed=%.0fms",
+            response.status_code,
+            _elapsed,
+        )
         self._remove_duplicate_ct0_cookie()
 
         try:
@@ -1872,13 +1904,42 @@ class Client:
         type0: retweeters
         type1: favoriters
         """
+        _debug_logger.debug(
+            "_get_tweet_engagements: tweet_id=%s, count=%d, cursor=%s",
+            tweet_id,
+            count,
+            cursor[:30] if cursor else None,
+        )
+
         response, _ = await f(tweet_id, count, cursor)
         items_ = find_dict(response, "entries", True)
         if not items_:
+            _debug_logger.debug("_get_tweet_engagements: No entries found, returning empty")
             return Result([])
         items = items_[0]
 
+        _debug_logger.debug("_get_tweet_engagements: Found %d entries", len(items))
+
+        # Log entry types for debugging
+        for item in items:
+            entry_id = item.get("entryId", "")
+            if entry_id.startswith("cursor-"):
+                content = item.get("content", {})
+                cursor_val = content.get("value", "")[:30]
+                stop_on_empty = content.get("stopOnEmptyResponse")
+                _debug_logger.debug(
+                    "  Entry: %s, stopOnEmpty=%s, cursor=%s...",
+                    entry_id,
+                    stop_on_empty,
+                    cursor_val,
+                )
+
         next_cursor, previous_cursor = extract_cursors(items)
+        _debug_logger.debug(
+            "_get_tweet_engagements: next_cursor=%s, prev_cursor=%s",
+            next_cursor[:30] if next_cursor else None,
+            previous_cursor[:30] if previous_cursor else None,
+        )
 
         results = []
         for item in items:
@@ -1892,6 +1953,8 @@ class Client:
                 continue
             user_info = user_info_[0]
             results.append(User(self, user_info))
+
+        _debug_logger.debug("_get_tweet_engagements: Extracted %d users", len(results))
 
         return Result(
             results,
