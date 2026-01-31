@@ -53,6 +53,8 @@ from ..utils import (
     Result,
     build_tweet_data,
     build_user_data,
+    extract_cursors,
+    extract_cursors_from_response,
     find_dict,
     find_entry_by_type,
     httpx_transport_to_url,
@@ -781,15 +783,18 @@ class Client:
                 else:
                     items = []
 
-        next_cursor = None
-        previous_cursor = None
+        next_cursor, previous_cursor = extract_cursors(items)
+
+        # Fallback: try extracting from instructions if not found in items
+        if next_cursor is None:
+            if product == "Media":
+                entries = find_dict(instructions, "entries", find_one=True)[0]
+                next_cursor, previous_cursor = extract_cursors(entries)
+            else:
+                next_cursor, previous_cursor = extract_cursors(instructions)
 
         results = []
         for item in items:
-            if item["entryId"].startswith("cursor-bottom"):
-                next_cursor = item["content"]["value"]
-            if item["entryId"].startswith("cursor-top"):
-                previous_cursor = item["content"]["value"]
             if not item["entryId"].startswith(("tweet", "search-grid")):
                 continue
 
@@ -801,20 +806,11 @@ class Client:
             if tweet is not None:
                 results.append(tweet)
 
-        if next_cursor is None:
-            if product == "Media":
-                entries = find_dict(instructions, "entries", find_one=True)[0]
-                next_cursor = entries[-1]["content"]["value"]
-                previous_cursor = entries[-2]["content"]["value"]
-            else:
-                next_cursor = instructions[-1]["entry"]["content"]["value"]
-                previous_cursor = instructions[-2]["entry"]["content"]["value"]
-
         return Result(
             results,
-            partial(self.search_tweet, query, product, count, next_cursor),
+            partial(self.search_tweet, query, product, count, next_cursor) if next_cursor else None,
             next_cursor,
-            partial(self.search_tweet, query, product, count, previous_cursor),
+            partial(self.search_tweet, query, product, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -859,7 +855,7 @@ class Client:
         """
         response, _ = await self.gql.search_timeline(query, "People", count, cursor)
         items = find_dict(response, "entries", find_one=True)[0]
-        next_cursor = items[-1]["content"]["value"]
+        next_cursor, previous_cursor = extract_cursors(items)
 
         results = []
         for item in items:
@@ -869,7 +865,11 @@ class Client:
             results.append(User(self, user_info))
 
         return Result(
-            results, partial(self.search_user, query, count, next_cursor), next_cursor
+            results,
+            partial(self.search_user, query, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.search_user, query, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def get_similar_tweets(self, tweet_id: str) -> list[Tweet]:
@@ -948,24 +948,18 @@ class Client:
         if instruction is None:
             return Result.empty()
         entries = instruction["entries"]
-        previous_cursor = None
-        next_cursor = None
-        results = []
+        next_cursor, previous_cursor = extract_cursors(entries)
 
+        results = []
         for entry in entries:
-            entryId = entry["entryId"]
-            if entryId.startswith("tweet"):
+            if entry["entryId"].startswith("tweet"):
                 results.append(tweet_from_data(self, entry))
-            elif entryId.startswith("cursor-top"):
-                previous_cursor = entry["content"]["value"]
-            elif entryId.startswith("cursor-bottom"):
-                next_cursor = entry["content"]["value"]
 
         return Result(
             results,
-            partial(self.get_user_highlights_tweets, user_id, count, next_cursor),
+            partial(self.get_user_highlights_tweets, user_id, count, next_cursor) if next_cursor else None,
             next_cursor,
-            partial(self.get_user_highlights_tweets, user_id, count, previous_cursor),
+            partial(self.get_user_highlights_tweets, user_id, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -1688,14 +1682,12 @@ class Client:
                     if display_type and display_type[0] == "SelfThread":
                         tweet.thread = [tweet_object, *replies]
 
-        if entries[-1]["entryId"].startswith("cursor"):
-            # if has more replies
-            reply_next_cursor = entries[-1]["content"]["value"]
+        reply_next_cursor, _ = extract_cursors(entries)
+        if reply_next_cursor:
             _fetch_more_replies = partial(
                 self._get_more_replies, tweet_id, reply_next_cursor
             )
         else:
-            reply_next_cursor = None
             _fetch_more_replies = None
 
         tweet.replies = Result(replies_list, _fetch_more_replies, reply_next_cursor)
@@ -1751,20 +1743,10 @@ class Client:
                     replies_list.append(tweet_object)
                     continue
 
-            if entries[-1]["entryId"].startswith("cursor"):
-                # if has more replies
-
-                reply_next_cursor = (
-                    entries[-1]["content"]["itemContent"]["value"]
-                    if entries[-1]["content"].get("itemContent")
-                    else entries[-1]["content"]["value"]
-                )
-                # _fetch_more_replies = partial(self._get_more_replies,
-                #                               tweet_id, reply_next_cursor)
-                _fetch_more_replies = None
-            else:
-                reply_next_cursor = None
-                _fetch_more_replies = None
+            reply_next_cursor, _ = extract_cursors(entries)
+            # _fetch_more_replies = partial(self._get_more_replies,
+            #                               tweet_id, reply_next_cursor) if reply_next_cursor else None
+            _fetch_more_replies = None
 
             replies = Result(replies_list, _fetch_more_replies, reply_next_cursor)
 
@@ -1815,20 +1797,10 @@ class Client:
                     replies_list.append(tweet_object)
                     continue
 
-            if entries[-1]["entryId"].startswith("cursor"):
-                # if has more replies
-
-                reply_next_cursor = (
-                    entries[-1]["content"]["itemContent"]["value"]
-                    if entries[-1]["content"].get("itemContent")
-                    else entries[-1]["content"]["value"]
-                )
-                # _fetch_more_replies = partial(self._get_more_replies,
-                #                               tweet_id, reply_next_cursor)
-                _fetch_more_replies = None
-            else:
-                reply_next_cursor = None
-                _fetch_more_replies = None
+            reply_next_cursor, _ = extract_cursors(entries)
+            # _fetch_more_replies = partial(self._get_more_replies,
+            #                               tweet_id, reply_next_cursor) if reply_next_cursor else None
+            _fetch_more_replies = None
 
             replies = Result(replies_list, _fetch_more_replies, reply_next_cursor)
 
@@ -1905,12 +1877,15 @@ class Client:
         if not items_:
             return Result([])
         items = items_[0]
-        next_cursor = items[-1]["content"]["value"]
-        previous_cursor = items[-2]["content"]["value"]
+
+        next_cursor, previous_cursor = extract_cursors(items)
 
         results = []
         for item in items:
-            if not item["entryId"].startswith("user"):
+            entry_id = item.get("entryId", "")
+            if not entry_id.startswith("user") and not entry_id.startswith("entry-"):
+                continue
+            if entry_id.startswith("cursor-"):
                 continue
             user_info_ = find_dict(item, "result", True)
             if not user_info_:
@@ -1920,9 +1895,9 @@ class Client:
 
         return Result(
             results,
-            partial(self._get_tweet_engagements, tweet_id, count, next_cursor, f),
+            partial(self._get_tweet_engagements, tweet_id, count, next_cursor, f) if next_cursor else None,
             next_cursor,
-            partial(self._get_tweet_engagements, tweet_id, count, previous_cursor, f),
+            partial(self._get_tweet_engagements, tweet_id, count, previous_cursor, f) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -2150,21 +2125,22 @@ class Client:
         pinned_item_list = pinned_item if pinned_item else []
         pinned_item = pinned_item_list[0]["entry"] if pinned_item else None
 
-        items = instructions[-1]["entries"]
-        if items and pinned_item is not None:
-            items.insert(0, pinned_item)
-        next_cursor = items[-1]["content"]["value"]
-        previous_cursor = items[-2]["content"]["value"]
+        entries = instructions[-1]["entries"]
+        if entries and pinned_item is not None:
+            entries.insert(0, pinned_item)
+        next_cursor, previous_cursor = extract_cursors(entries)
 
         if tweet_type == "Media":
             if cursor is None:
-                items = items[0]["content"]["items"]
+                items = entries[0]["content"]["items"]
             else:
                 items = instructions[0]["moduleItems"]
+        else:
+            items = entries
 
         results = []
         for item in items:
-            entry_id = item["entryId"]
+            entry_id = item.get("entryId", "")
 
             if not entry_id.startswith(
                 ("tweet", "profile-conversation", "profile-grid")
@@ -2191,9 +2167,9 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_user_tweets, user_id, tweet_type, count, next_cursor),
+            partial(self.get_user_tweets, user_id, tweet_type, count, next_cursor) if next_cursor else None,
             next_cursor,
-            partial(self.get_user_tweets, user_id, tweet_type, count, previous_cursor),
+            partial(self.get_user_tweets, user_id, tweet_type, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -2240,9 +2216,9 @@ class Client:
         """
         response, _ = await self.gql.home_timeline(count, seen_tweet_ids, cursor)
         items = find_dict(response, "entries", find_one=True)[0]
-        next_cursor = items[-1]["content"]["value"]
-        results = []
+        next_cursor, previous_cursor = extract_cursors(items)
 
+        results = []
         for item in items:
             if "itemContent" not in item["content"]:
                 continue
@@ -2253,8 +2229,10 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_timeline, count, seen_tweet_ids, next_cursor),
+            partial(self.get_timeline, count, seen_tweet_ids, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self.get_timeline, count, seen_tweet_ids, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def get_latest_timeline(
@@ -2300,9 +2278,9 @@ class Client:
         """
         response, _ = await self.gql.home_latest_timeline(count, seen_tweet_ids, cursor)
         items = find_dict(response, "entries", find_one=True)[0]
-        next_cursor = items[-1]["content"]["value"]
-        results = []
+        next_cursor, previous_cursor = extract_cursors(items)
 
+        results = []
         for item in items:
             if "itemContent" not in item["content"]:
                 continue
@@ -2313,8 +2291,10 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_latest_timeline, count, seen_tweet_ids, next_cursor),
+            partial(self.get_latest_timeline, count, seen_tweet_ids, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self.get_latest_timeline, count, seen_tweet_ids, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def favorite_tweet(self, tweet_id: str) -> Response:
@@ -2521,15 +2501,7 @@ class Client:
         if not items_:
             return Result([])
         items = items_[0]
-        next_cursor = items[-1]["content"]["value"]
-        if folder_id is None:
-            previous_cursor = items[-2]["content"]["value"]
-            fetch_previous_result = partial(
-                self.get_bookmarks, count, previous_cursor, folder_id
-            )
-        else:
-            previous_cursor = None
-            fetch_previous_result = None
+        next_cursor, previous_cursor = extract_cursors(items)
 
         results = []
         for item in items:
@@ -2540,9 +2512,9 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_bookmarks, count, next_cursor, folder_id),
+            partial(self.get_bookmarks, count, next_cursor, folder_id) if next_cursor else None,
             next_cursor,
-            fetch_previous_result,
+            partial(self.get_bookmarks, count, previous_cursor, folder_id) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -2898,9 +2870,11 @@ class Client:
         if not items_:
             return Result.empty()
         items = items_[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
         results = []
         for item in items:
-            entry_id = item["entryId"]
+            entry_id = item.get("entryId", "")
             if entry_id.startswith("user"):
                 user_info = find_dict(item, "result", find_one=True)
                 if not user_info:
@@ -2913,13 +2887,13 @@ class Client:
                 if user_info[0].get("__typename") == "UserUnavailable":
                     continue
                 results.append(User(self, user_info[0]))
-            elif entry_id.startswith("cursor-bottom"):
-                next_cursor = item["content"]["value"]
 
         return Result(
             results,
-            partial(self._get_user_friendship, user_id, count, f, next_cursor),
+            partial(self._get_user_friendship, user_id, count, f, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self._get_user_friendship, user_id, count, f, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def _get_user_friendship_2(
@@ -2931,14 +2905,13 @@ class Client:
         for user in users:
             results.append(User(self, build_user_data(user)))
 
-        previous_cursor = response["previous_cursor"]
-        next_cursor = response["next_cursor"]
+        next_cursor, previous_cursor = extract_cursors_from_response(response)
 
         return Result(
             results,
             partial(
                 self._get_user_friendship_2, user_id, screen_name, count, f, next_cursor
-            ),
+            ) if next_cursor else None,
             next_cursor,
             partial(
                 self._get_user_friendship_2,
@@ -2947,7 +2920,7 @@ class Client:
                 count,
                 f,
                 previous_cursor,
-            ),
+            ) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -3100,14 +3073,13 @@ class Client:
         cursor: str | None,
     ) -> Result[int]:
         response, _ = await f(user_id, screen_name, count, cursor)
-        previous_cursor = response["previous_cursor"]
-        next_cursor = response["next_cursor"]
+        next_cursor, previous_cursor = extract_cursors_from_response(response)
 
         return Result(
             response["ids"],
             partial(
                 self._get_friendship_ids, user_id, screen_name, count, f, next_cursor
-            ),
+            ) if next_cursor else None,
             next_cursor,
             partial(
                 self._get_friendship_ids,
@@ -3116,7 +3088,7 @@ class Client:
                 count,
                 f,
                 previous_cursor,
-            ),
+            ) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -3771,9 +3743,15 @@ class Client:
         for list in items[1]:
             lists.append(List(self, list["item"]["itemContent"]["list"]))
 
-        next_cursor = entries[-1]["content"]["value"]
+        next_cursor, previous_cursor = extract_cursors(entries)
 
-        return Result(lists, partial(self.get_lists, count, next_cursor), next_cursor)
+        return Result(
+            lists,
+            partial(self.get_lists, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_lists, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
 
     async def get_list(self, list_id: str) -> List:
         """
@@ -3839,7 +3817,7 @@ class Client:
         if not items_:
             raise ValueError(f"Invalid list id: {list_id}")
         items = items_[0]
-        next_cursor = items[-1]["content"]["value"]
+        next_cursor, previous_cursor = extract_cursors(items)
 
         results = []
         for item in items:
@@ -3852,8 +3830,10 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_list_tweets, list_id, count, next_cursor),
+            partial(self.get_list_tweets, list_id, count, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self.get_list_tweets, list_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def _get_list_users(
@@ -3865,20 +3845,21 @@ class Client:
         response, _ = await f(list_id, count, cursor)
 
         items = find_dict(response, "entries", find_one=True)[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
         results = []
         for item in items:
-            entry_id = item["entryId"]
+            entry_id = item.get("entryId", "")
             if entry_id.startswith("user"):
                 user_info = find_dict(item, "result", find_one=True)[0]
                 results.append(User(self, user_info))
-            elif entry_id.startswith("cursor-bottom"):
-                next_cursor = item["content"]["value"]
-                break
 
         return Result(
             results,
-            partial(self._get_list_users, f, list_id, count, next_cursor),
+            partial(self._get_list_users, f, list_id, count, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self._get_list_users, f, list_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def get_list_members(
@@ -3975,6 +3956,7 @@ class Client:
         """
         response, _ = await self.gql.search_timeline(query, "Lists", count, cursor)
         entries = find_dict(response, "entries", find_one=True)[0]
+        next_cursor, previous_cursor = extract_cursors(entries)
 
         if cursor is None:
             items = entries[0]["content"]["items"]
@@ -3984,10 +3966,13 @@ class Client:
         lists = []
         for item in items:
             lists.append(List(self, item["item"]["itemContent"]["list"]))
-        next_cursor = entries[-1]["content"]["value"]
 
         return Result(
-            lists, partial(self.search_list, query, count, next_cursor), next_cursor
+            lists,
+            partial(self.search_list, query, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.search_list, query, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def get_notifications(
@@ -4069,18 +4054,14 @@ class Client:
             notifications.append(Notification(self, notification, tweet, user))
 
         entries = find_dict(response, "entries", find_one=True)[0]
-        cursor_bottom_entry = [
-            i for i in entries if i["entryId"].startswith("cursor-bottom")
-        ]
-        if cursor_bottom_entry:
-            next_cursor = find_dict(cursor_bottom_entry[0], "value", find_one=True)[0]
-        else:
-            next_cursor = None
+        next_cursor, previous_cursor = extract_cursors(entries)
 
         return Result(
             notifications,
-            partial(self.get_notifications, type, count, next_cursor),
+            partial(self.get_notifications, type, count, next_cursor) if next_cursor else None,
             next_cursor,
+            partial(self.get_notifications, type, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
         )
 
     async def search_community(
@@ -4204,23 +4185,19 @@ class Client:
             raise ValueError(f"Invalid tweet_type: {tweet_type}")
 
         entries = find_dict(response, "entries", find_one=True)[0]
+        next_cursor, previous_cursor = extract_cursors(entries)
+
         if tweet_type == "Media":
             if cursor is None:
                 items = entries[0]["content"]["items"]
-                next_cursor = entries[-1]["content"]["value"]
-                previous_cursor = entries[-2]["content"]["value"]
             else:
                 items = find_dict(response, "moduleItems", find_one=True)[0]
-                next_cursor = entries[-1]["content"]["value"]
-                previous_cursor = entries[-2]["content"]["value"]
         else:
             items = entries
-            next_cursor = items[-1]["content"]["value"]
-            previous_cursor = items[-2]["content"]["value"]
 
         tweets = []
         for item in items:
-            if not item["entryId"].startswith(("tweet", "communities-grid")):
+            if not item.get("entryId", "").startswith(("tweet", "communities-grid")):
                 continue
 
             tweet = tweet_from_data(self, item)
@@ -4231,7 +4208,7 @@ class Client:
             tweets,
             partial(
                 self.get_community_tweets, community_id, tweet_type, count, next_cursor
-            ),
+            ) if next_cursor else None,
             next_cursor,
             partial(
                 self.get_community_tweets,
@@ -4239,7 +4216,7 @@ class Client:
                 tweet_type,
                 count,
                 previous_cursor,
-            ),
+            ) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -4271,9 +4248,11 @@ class Client:
         """
         response, _ = await self.gql.communities_main_page_timeline(count, cursor)
         items = find_dict(response, "entries", find_one=True)[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
         tweets = []
         for item in items:
-            if not item["entryId"].startswith("tweet"):
+            if not item.get("entryId", "").startswith("tweet"):
                 continue
             tweet_data = find_dict(item, "result", find_one=True)[0]
             if "tweet" in tweet_data:
@@ -4286,14 +4265,11 @@ class Client:
             tweet.community = community
             tweets.append(tweet)
 
-        next_cursor = items[-1]["content"]["value"]
-        previous_cursor = items[-2]["content"]["value"]
-
         return Result(
             tweets,
-            partial(self.get_communities_timeline, count, next_cursor),
+            partial(self.get_communities_timeline, count, next_cursor) if next_cursor else None,
             next_cursor,
-            partial(self.get_communities_timeline, count, previous_cursor),
+            partial(self.get_communities_timeline, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -4454,27 +4430,26 @@ class Client:
         )
 
         items = find_dict(response, "entries", find_one=True)[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
         tweets = []
         for item in items:
-            if not item["entryId"].startswith("tweet"):
+            if not item.get("entryId", "").startswith("tweet"):
                 continue
 
             tweet = tweet_from_data(self, item)
             if tweet is not None:
                 tweets.append(tweet)
 
-        next_cursor = items[-1]["content"]["value"]
-        previous_cursor = items[-2]["content"]["value"]
-
         return Result(
             tweets,
             partial(
                 self.search_community_tweet, community_id, query, count, next_cursor
-            ),
+            ) if next_cursor else None,
             next_cursor,
             partial(
                 self.search_community_tweet, community_id, query, count, previous_cursor
-            ),
+            ) if previous_cursor else None,
             previous_cursor,
         )
 

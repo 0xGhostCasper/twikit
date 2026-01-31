@@ -255,6 +255,81 @@ def find_entry_by_type(entries, type_filter):
     return None
 
 
+def extract_cursors_from_response(response: dict) -> tuple[str | None, str | None]:
+    """
+    Extract next and previous cursors from a response with top-level cursor fields.
+
+    Handles response format: {"next_cursor": "...", "previous_cursor": "..."}
+
+    Parameters
+    ----------
+    response : dict
+        API response containing cursor fields.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        A tuple of (next_cursor, previous_cursor).
+        Either value may be None if not found or if the cursor is 0.
+    """
+    next_cursor = response.get("next_cursor")
+    previous_cursor = response.get("previous_cursor")
+
+    # Twitter API uses 0 to indicate no more pages
+    if next_cursor == 0:
+        next_cursor = None
+    if previous_cursor == 0:
+        previous_cursor = None
+
+    return next_cursor, previous_cursor
+
+
+def extract_cursors(entries: list) -> tuple[str | None, str | None]:
+    """
+    Extract next (bottom) and previous (top) cursors from timeline entries.
+
+    Handles multiple response formats:
+    - Standard entries: [{"entryId": "cursor-bottom-*", "content": {"value": "..."}}]
+    - Instructions format: [{"entry": {"entryId": "...", "content": {"value": "..."}}}]
+    - cursorType field: {"content": {"cursorType": "Bottom", "value": "..."}}
+    - itemContent format: {"content": {"itemContent": {"value": "..."}}}
+
+    Parameters
+    ----------
+    entries : list
+        List of timeline entries or instructions from Twitter API response.
+
+    Returns
+    -------
+    tuple[str | None, str | None]
+        A tuple of (next_cursor, previous_cursor).
+        Either value may be None if not found in the entries.
+    """
+    next_cursor = None
+    previous_cursor = None
+
+    for item in entries:
+        # Handle instructions format: {"entry": {"entryId": ..., "content": ...}}
+        entry = item.get("entry", item)
+
+        entry_id = entry.get("entryId", "")
+        content = entry.get("content", {})
+        cursor_type = content.get("cursorType")
+
+        # Extract value from either content.value or content.itemContent.value
+        value = content.get("value")
+        if value is None:
+            item_content = content.get("itemContent", {})
+            value = item_content.get("value")
+
+        if cursor_type == "Bottom" or entry_id.startswith("cursor-bottom"):
+            next_cursor = value
+        elif cursor_type == "Top" or entry_id.startswith("cursor-top"):
+            previous_cursor = value
+
+    return next_cursor, previous_cursor
+
+
 FILTERS = Literal[
     'media',
     'retweets',
