@@ -294,6 +294,10 @@ def extract_cursors(entries: list) -> tuple[str | None, str | None]:
     - cursorType field: {"content": {"cursorType": "Bottom", "value": "..."}}
     - itemContent format: {"content": {"itemContent": {"value": "..."}}}
 
+    Also handles pagination termination:
+    - If bottom cursor has "stopOnEmptyResponse": true AND there are no data entries,
+      returns None for next_cursor to prevent infinite pagination loops.
+
     Parameters
     ----------
     entries : list
@@ -307,6 +311,8 @@ def extract_cursors(entries: list) -> tuple[str | None, str | None]:
     """
     next_cursor = None
     previous_cursor = None
+    stop_on_empty = False
+    data_entry_count = 0
 
     for item in entries:
         # Handle instructions format: {"entry": {"entryId": ..., "content": ...}}
@@ -316,6 +322,15 @@ def extract_cursors(entries: list) -> tuple[str | None, str | None]:
         content = entry.get("content", {})
         cursor_type = content.get("cursorType")
 
+        # Check if this is a cursor entry or a data entry
+        is_cursor_entry = (
+            cursor_type is not None or
+            entry_id.startswith("cursor-")
+        )
+
+        if not is_cursor_entry:
+            data_entry_count += 1
+
         # Extract value from either content.value or content.itemContent.value
         value = content.get("value")
         if value is None:
@@ -324,8 +339,16 @@ def extract_cursors(entries: list) -> tuple[str | None, str | None]:
 
         if cursor_type == "Bottom" or entry_id.startswith("cursor-bottom"):
             next_cursor = value
+            # Check for stopOnEmptyResponse flag
+            if content.get("stopOnEmptyResponse"):
+                stop_on_empty = True
         elif cursor_type == "Top" or entry_id.startswith("cursor-top"):
             previous_cursor = value
+
+    # If stopOnEmptyResponse is true and there are no data entries,
+    # this is a terminal response - don't return next_cursor
+    if stop_on_empty and data_entry_count == 0:
+        next_cursor = None
 
     return next_cursor, previous_cursor
 
