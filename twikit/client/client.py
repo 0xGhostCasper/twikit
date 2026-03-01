@@ -108,7 +108,7 @@ class Client:
             warnings.warn(message)
 
         # Initialize with an isolated cookie jar to prevent cookie conflicts
-        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), **kwargs)
+        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), http2=True, **kwargs)
         self.language = language
         self.proxy = proxy
         self.captcha_solver = captcha_solver

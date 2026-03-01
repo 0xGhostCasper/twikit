@@ -154,11 +154,17 @@ class GQLClient:
             'rawQuery': query,
             'count': count,
             'querySource': 'typed_query',
-            'product': product
+            'product': product,
+            'includePromotedContent': False
         }
         if cursor is not None:
             variables['cursor'] = cursor
-        return await self.gql_get(Endpoint.SEARCH_TIMELINE, variables, FEATURES)
+        params = {
+            'fieldToggles': {'withArticleRichContentState': False}
+        }
+        return await self.gql_get(
+            Endpoint.SEARCH_TIMELINE, variables, FEATURES, extra_params=params
+        )
 
     async def similar_posts(self, tweet_id: str):
         variables = {'tweet_id': tweet_id}
