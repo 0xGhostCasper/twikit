@@ -16,7 +16,10 @@ if os.name == 'nt':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from ._captcha import Capsolver
+from .article import Article
+from .audiospace import AudioSpace
 from .bookmark import BookmarkFolder
+from .broadcast import Broadcast
 from .errors import *
 from .utils import build_query
 from .client.client import Client
@@ -26,6 +29,7 @@ from .group import Group, GroupMessage
 from .list import List
 from .message import Message
 from .notification import Notification
+from .topic import Topic
 from .trend import Trend
 from .tweet import CommunityNote, Poll, ScheduledTweet, Tweet
 from .user import AccountAbout, User

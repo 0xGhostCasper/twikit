@@ -16,7 +16,10 @@ from httpx import AsyncClient, AsyncHTTPTransport, Response, Cookies
 from httpx._utils import URLPattern
 
 from .._captcha import Capsolver
+from ..article import Article
+from ..audiospace import AudioSpace
 from ..bookmark import BookmarkFolder
+from ..broadcast import Broadcast
 from ..community import Community, CommunityMember
 from ..constants import TOKEN, DOMAIN
 from ..errors import (
@@ -44,6 +47,7 @@ from ..list import List
 from ..message import Message
 from ..notification import Notification
 from ..streaming import Payload, StreamingSession, _payload_from_data
+from ..topic import Topic
 from ..trend import Location, PlaceTrend, PlaceTrends, Trend
 from ..tweet import CommunityNote, Poll, ScheduledTweet, Tweet, tweet_from_data
 from ..ui_metrics import solve_ui_metrics
@@ -1487,6 +1491,72 @@ class Client:
             raise UserUnavailable(user_data.get("message"))
         return User(self, user_data)
 
+    async def get_users_by_ids(self, user_ids: list[str]) -> list[User]:
+        """
+        Fetches multiple users by their IDs in a single request.
+
+        Parameters
+        ----------
+        user_ids : list[:class:`str`]
+            A list of user IDs to retrieve.
+
+        Returns
+        -------
+        list[:class:`User`]
+            A list of User objects.
+
+        Examples
+        --------
+        >>> user_ids = ['123456', '789012']
+        >>> users = await client.get_users_by_ids(user_ids)
+        >>> for user in users:
+        ...     print(user)
+        <User id="123456">
+        <User id="789012">
+        """
+        response, _ = await self.gql.users_by_rest_ids(user_ids)
+        results = []
+        for user_result in response.get('data', {}).get('users', []):
+            result = user_result.get('result', {})
+            if result.get('__typename') == 'UserUnavailable':
+                continue
+            if 'rest_id' in result:
+                results.append(User(self, result))
+        return results
+
+    async def get_users_by_screen_names(self, screen_names: list[str]) -> list[User]:
+        """
+        Fetches multiple users by their screen names in a single request.
+
+        Parameters
+        ----------
+        screen_names : list[:class:`str`]
+            A list of screen names to retrieve.
+
+        Returns
+        -------
+        list[:class:`User`]
+            A list of User objects.
+
+        Examples
+        --------
+        >>> names = ['user1', 'user2']
+        >>> users = await client.get_users_by_screen_names(names)
+        >>> for user in users:
+        ...     print(user)
+        <User id="...">
+        <User id="...">
+        """
+        response, _ = await self.gql.users_by_screen_names(screen_names)
+        results = []
+        for user_result in response.get('data', {}).get('users', []):
+            result = user_result.get('result', {})
+            if result.get('__typename') == 'UserUnavailable':
+                continue
+            if 'rest_id' in result:
+                results.append(User(self, result))
+        return results
+
     async def reverse_geocode(
         self,
         lat: float,
@@ -1834,6 +1904,42 @@ class Client:
             results.append(tweet_from_data(self, tweet_result))
         return results
 
+    async def get_tweet_edit_history(self, tweet_id: str) -> list[Tweet]:
+        """
+        Retrieves the edit history of a tweet.
+
+        Parameters
+        ----------
+        tweet_id : :class:`str`
+            The ID of the tweet.
+
+        Returns
+        -------
+        list[:class:`Tweet`]
+            A list of Tweet objects representing each version
+            of the edited tweet, ordered from oldest to newest.
+
+        Examples
+        --------
+        >>> tweet_id = '...'
+        >>> versions = await client.get_tweet_edit_history(tweet_id)
+        >>> for version in versions:
+        ...     print(version)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.tweet_edit_history(tweet_id)
+        tweet_results = find_dict(response, 'edit_tweets_slice', True)
+        if not tweet_results:
+            return []
+        slices = tweet_results[0].get('slices', [])
+        results = []
+        for s in slices:
+            tweet_result = s.get('tweet_results', {})
+            tweet = tweet_from_data(self, tweet_result)
+            if tweet is not None:
+                results.append(tweet)
+        return results
+
     async def get_scheduled_tweets(self) -> list[ScheduledTweet]:
         """
         Retrieves scheduled tweets.
@@ -2126,7 +2232,7 @@ class Client:
         pinned_item = pinned_item_list[0]["entry"] if pinned_item else None
 
         entries = instructions[-1]["entries"]
-        if entries and pinned_item is not None:
+        if entries and pinned_item is not None and cursor is None:
             entries.insert(0, pinned_item)
         next_cursor, previous_cursor = extract_cursors(entries)
 
@@ -2170,6 +2276,63 @@ class Client:
             partial(self.get_user_tweets, user_id, tweet_type, count, next_cursor) if next_cursor else None,
             next_cursor,
             partial(self.get_user_tweets, user_id, tweet_type, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_user_articles(
+        self,
+        user_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Fetches article (long-form) tweets from a user's timeline.
+
+        Parameters
+        ----------
+        user_id : :class:`str`
+            The ID of the Twitter user.
+        count : :class:`int`, default=20
+            The number of articles to retrieve.
+        cursor : :class:`str`, default=None
+            The cursor for fetching the next set of results.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of article Tweet objects.
+
+        Examples
+        --------
+        >>> user_id = '...'
+        >>> articles = await client.get_user_articles(user_id, count=10)
+        >>> for article in articles:
+        ...     print(article)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.user_articles_tweets(user_id, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.get_user_articles, user_id, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_user_articles, user_id, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -2857,6 +3020,680 @@ class Client:
         trends = [PlaceTrend(self, data) for data in trend_data["trends"]]
         trend_data["trends"] = trends
         return trend_data
+
+    async def get_trend_history(self) -> list[dict]:
+        """
+        Retrieves the user's trend history (previously viewed trends).
+
+        Returns
+        -------
+        list[:class:`dict`]
+            A list of trend history entries. Each entry contains
+            trend metadata as returned by the API.
+
+        Examples
+        --------
+        >>> history = await client.get_trend_history()
+        >>> for entry in history:
+        ...     print(entry)
+        """
+        response, _ = await self.gql.trend_history()
+        entries = response.get('data', {}).get('trends_history', {}).get('entries', [])
+        return entries
+
+    async def get_trend_relevant_users(self, trend_name: str) -> list[User]:
+        """
+        Retrieves users relevant to a specific trend.
+
+        Parameters
+        ----------
+        trend_name : :class:`str`
+            The name of the trend to look up relevant users for.
+
+        Returns
+        -------
+        list[:class:`User`]
+            A list of User objects relevant to the trend.
+
+        Examples
+        --------
+        >>> users = await client.get_trend_relevant_users('#Python')
+        >>> for user in users:
+        ...     print(user)
+        <User id="...">
+        """
+        response, _ = await self.gql.trend_relevant_users(trend_name)
+        user_results = find_dict(response, 'result', find_one=False)
+        results = []
+        for user_data in user_results:
+            if isinstance(user_data, dict) and user_data.get('__typename') in ('User', 'UserResults'):
+                results.append(User(self, user_data))
+        return results
+
+    async def get_audio_space(self, space_id: str) -> AudioSpace:
+        """
+        Retrieves a Twitter Space by its ID.
+
+        Parameters
+        ----------
+        space_id : :class:`str`
+            The ID of the Twitter Space.
+
+        Returns
+        -------
+        :class:`AudioSpace`
+            An AudioSpace object.
+
+        Examples
+        --------
+        >>> space = await client.get_audio_space('1eaJbrPAqMwKX')
+        >>> print(space)
+        <AudioSpace id="1eaJbrPAqMwKX" title="...">
+        """
+        response, _ = await self.gql.audio_space_by_id(space_id)
+        space_data = response.get('data', {}).get('audioSpace', {})
+        return AudioSpace(self, space_data)
+
+    async def search_audio_spaces(
+        self,
+        query: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[AudioSpace]:
+        """
+        Searches for Twitter Spaces.
+
+        Parameters
+        ----------
+        query : :class:`str`
+            The search query.
+        count : :class:`int`, default=20
+            The number of results to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`AudioSpace`]
+            A Result object containing a list of AudioSpace objects.
+
+        Examples
+        --------
+        >>> spaces = await client.search_audio_spaces('python')
+        >>> for space in spaces:
+        ...     print(space)
+        <AudioSpace id="..." title="...">
+        """
+        response, _ = await self.gql.audio_space_search(query, count, cursor)
+        search_data = response.get('data', {}).get('search_by_raw_query', {})
+        audio_spaces = search_data.get('audio_spaces_grouped_by_section', {})
+
+        sections = audio_spaces.get('sections', [])
+        results = []
+        next_cursor = None
+        for section in sections:
+            items = section.get('items', [])
+            for item in items:
+                space_data = item.get('space', {})
+                if space_data:
+                    results.append(AudioSpace(self, space_data))
+            cursor_info = section.get('destination', {})
+            if cursor_info.get('cursor'):
+                next_cursor = cursor_info['cursor']
+
+        return Result(
+            results,
+            partial(self.search_audio_spaces, query, count, next_cursor) if next_cursor else None,
+            next_cursor,
+        )
+
+    async def get_topic(self, topic_id: str) -> Topic:
+        """
+        Retrieves a Twitter Topic by its ID.
+
+        Parameters
+        ----------
+        topic_id : :class:`str`
+            The ID of the topic.
+
+        Returns
+        -------
+        :class:`Topic`
+            A Topic object.
+
+        Examples
+        --------
+        >>> topic = await client.get_topic('123456')
+        >>> print(topic)
+        <Topic id="123456" name="...">
+        """
+        response, _ = await self.gql.topic_by_rest_id(topic_id)
+        topic_data = response.get('data', {}).get('topic_by_rest_id', {})
+        return Topic(self, topic_data)
+
+    async def get_topic_tweets(
+        self,
+        topic_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Retrieves tweets for a Twitter Topic.
+
+        Parameters
+        ----------
+        topic_id : :class:`str`
+            The ID of the topic.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of Tweet objects.
+
+        Examples
+        --------
+        >>> tweets = await client.get_topic_tweets('123456')
+        >>> for tweet in tweets:
+        ...     print(tweet)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.topic_landing_page(topic_id, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.get_topic_tweets, topic_id, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_topic_tweets, topic_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_article(self, article_id: str) -> Article:
+        """
+        Retrieves a Twitter Article (long-form content) by its ID.
+
+        Parameters
+        ----------
+        article_id : :class:`str`
+            The ID of the article.
+
+        Returns
+        -------
+        :class:`Article`
+            An Article object.
+
+        Examples
+        --------
+        >>> article = await client.get_article('123456')
+        >>> print(article)
+        <Article id="123456" title="...">
+        """
+        response, _ = await self.gql.article_result_by_rest_id(article_id)
+        article_data = response.get('data', {}).get('article_entity_result', {})
+        return Article(self, article_data)
+
+    async def get_broadcast(self, broadcast_id: str) -> Broadcast:
+        """
+        Retrieves a Twitter Broadcast (live video) by its ID.
+
+        Parameters
+        ----------
+        broadcast_id : :class:`str`
+            The ID of the broadcast.
+
+        Returns
+        -------
+        :class:`Broadcast`
+            A Broadcast object.
+
+        Examples
+        --------
+        >>> broadcast = await client.get_broadcast('1eaJbrPAqMwKX')
+        >>> print(broadcast)
+        <Broadcast id="1eaJbrPAqMwKX" title="...">
+        """
+        response, _ = await self.gql.broadcast_query(broadcast_id)
+        broadcast_data = response.get('data', {}).get('broadcast', {})
+        return Broadcast(self, broadcast_data)
+
+    async def get_community_notes(self, tweet_id: str) -> list[CommunityNote]:
+        """
+        Retrieves community notes (Birdwatch) for a specific tweet.
+
+        Parameters
+        ----------
+        tweet_id : :class:`str`
+            The ID of the tweet to get notes for.
+
+        Returns
+        -------
+        list[:class:`CommunityNote`]
+            A list of CommunityNote objects.
+
+        Examples
+        --------
+        >>> notes = await client.get_community_notes('1234567890')
+        >>> for note in notes:
+        ...     print(note)
+        """
+        response, _ = await self.gql.birdwatch_fetch_notes(tweet_id)
+        notes_data = response.get('data', {}).get('tweet_result_by_rest_id', {})
+        bw_notes = find_dict(notes_data, 'birdwatch_note', find_one=False)
+        results = []
+        for note_data in bw_notes:
+            if isinstance(note_data, dict) and note_data.get('rest_id'):
+                results.append(CommunityNote(self, note_data))
+        return results
+
+    async def get_community_notes_for_url(
+        self,
+        url: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[CommunityNote]:
+        """
+        Retrieves community notes linked to a specific URL.
+
+        Parameters
+        ----------
+        url : :class:`str`
+            The URL to find notes for.
+        count : :class:`int`, default=20
+            The number of notes to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`CommunityNote`]
+            A Result object containing a list of CommunityNote objects.
+
+        Examples
+        --------
+        >>> notes = await client.get_community_notes_for_url('https://example.com')
+        """
+        response, _ = await self.gql.birdwatch_fetch_source_link_slice(url, count, cursor)
+        items_ = find_dict(response, 'entries', True)
+        if not items_:
+            return Result([])
+        items = items_[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
+        results = []
+        for item in items:
+            entry_id = item.get('entryId', '')
+            if entry_id.startswith('cursor-'):
+                continue
+            note_data = find_dict(item, 'birdwatch_note', find_one=True)
+            if note_data:
+                results.append(CommunityNote(self, note_data[0]))
+
+        return Result(
+            results,
+            partial(self.get_community_notes_for_url, url, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_community_notes_for_url, url, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_community_notes_timeline(
+        self,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[CommunityNote]:
+        """
+        Retrieves the global community notes timeline.
+
+        Parameters
+        ----------
+        count : :class:`int`, default=20
+            The number of notes to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`CommunityNote`]
+            A Result object containing a list of CommunityNote objects.
+
+        Examples
+        --------
+        >>> notes = await client.get_community_notes_timeline()
+        """
+        response, _ = await self.gql.birdwatch_fetch_global_timeline(count, cursor)
+        items_ = find_dict(response, 'entries', True)
+        if not items_:
+            return Result([])
+        items = items_[0]
+        next_cursor, previous_cursor = extract_cursors(items)
+
+        results = []
+        for item in items:
+            entry_id = item.get('entryId', '')
+            if entry_id.startswith('cursor-'):
+                continue
+            note_data = find_dict(item, 'birdwatch_note', find_one=True)
+            if note_data:
+                results.append(CommunityNote(self, note_data[0]))
+
+        return Result(
+            results,
+            partial(self.get_community_notes_timeline, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_community_notes_timeline, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_community_notes_stats(self) -> dict:
+        """
+        Retrieves public community notes (Birdwatch) statistics.
+
+        Returns
+        -------
+        :class:`dict`
+            A dictionary containing public Birdwatch statistics.
+
+        Examples
+        --------
+        >>> stats = await client.get_community_notes_stats()
+        >>> print(stats)
+        """
+        response, _ = await self.gql.birdwatch_fetch_public_data()
+        return response.get('data', {}).get('birdwatch_public_data', {})
+
+    async def get_list_ranked_tweets(
+        self,
+        list_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Retrieves algorithmically ranked tweets from a list.
+
+        Parameters
+        ----------
+        list_id : :class:`str`
+            The ID of the list.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of Tweet objects.
+
+        Examples
+        --------
+        >>> tweets = await client.get_list_ranked_tweets('123456')
+        >>> for tweet in tweets:
+        ...     print(tweet)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.list_ranked_tweets_timeline(list_id, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.get_list_ranked_tweets, list_id, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_list_ranked_tweets, list_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def search_list_tweets(
+        self,
+        list_id: str,
+        query: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Searches for tweets within a specific list.
+
+        Parameters
+        ----------
+        list_id : :class:`str`
+            The ID of the list.
+        query : :class:`str`
+            The search query.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of Tweet objects.
+
+        Examples
+        --------
+        >>> tweets = await client.search_list_tweets('123456', 'python')
+        >>> for tweet in tweets:
+        ...     print(tweet)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.list_search_timeline(list_id, query, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.search_list_tweets, list_id, query, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.search_list_tweets, list_id, query, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def explore_communities(
+        self,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Community]:
+        """
+        Retrieves communities from the explore/discovery timeline.
+
+        Parameters
+        ----------
+        count : :class:`int`, default=20
+            The number of communities to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Community`]
+            A Result object containing a list of Community objects.
+
+        Examples
+        --------
+        >>> communities = await client.explore_communities()
+        >>> for community in communities:
+        ...     print(community)
+        """
+        response, _ = await self.gql.communities_explore_timeline(count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            community_data = find_dict(item, 'community_results', find_one=True)
+            if community_data:
+                result = community_data[0].get('result', {})
+                if result:
+                    results.append(Community(self, result))
+
+        return Result(
+            results,
+            partial(self.explore_communities, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.explore_communities, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_community_hashtags(
+        self,
+        community_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Retrieves trending hashtag tweets in a community.
+
+        Parameters
+        ----------
+        community_id : :class:`str`
+            The ID of the community.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of Tweet objects.
+
+        Examples
+        --------
+        >>> tweets = await client.get_community_hashtags('123456')
+        >>> for tweet in tweets:
+        ...     print(tweet)
+        <Tweet id="...">
+        """
+        response, _ = await self.gql.community_hashtags_timeline(community_id, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.get_community_hashtags, community_id, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_community_hashtags, community_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
+
+    async def get_timeline_by_id(
+        self,
+        timeline_id: str,
+        count: int = 20,
+        cursor: str | None = None,
+    ) -> Result[Tweet]:
+        """
+        Retrieves any timeline by its ID (generic timeline endpoint).
+
+        Parameters
+        ----------
+        timeline_id : :class:`str`
+            The ID of the timeline.
+        count : :class:`int`, default=20
+            The number of tweets to retrieve.
+        cursor : :class:`str`, default=None
+            A cursor for pagination.
+
+        Returns
+        -------
+        Result[:class:`Tweet`]
+            A Result object containing a list of Tweet objects.
+
+        Examples
+        --------
+        >>> tweets = await client.get_timeline_by_id('timeline_id_here')
+        """
+        response, _ = await self.gql.generic_timeline_by_id(timeline_id, count, cursor)
+        instructions_ = find_dict(response, 'instructions', True)
+        if not instructions_:
+            return Result([])
+        instructions = instructions_[0]
+
+        entries = instructions[-1].get('entries', [])
+        next_cursor, previous_cursor = extract_cursors(entries)
+
+        results = []
+        for item in entries:
+            entry_id = item.get('entryId', '')
+            if not entry_id.startswith('tweet'):
+                continue
+            tweet = tweet_from_data(self, item)
+            if tweet is not None:
+                results.append(tweet)
+
+        return Result(
+            results,
+            partial(self.get_timeline_by_id, timeline_id, count, next_cursor) if next_cursor else None,
+            next_cursor,
+            partial(self.get_timeline_by_id, timeline_id, count, previous_cursor) if previous_cursor else None,
+            previous_cursor,
+        )
 
     async def _get_user_friendship(
         self, user_id: str, count: int, f, cursor: str | None
