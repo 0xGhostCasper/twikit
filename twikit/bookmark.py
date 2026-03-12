@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
     from .utils import Result
 
 
+@dataclass(eq=False, repr=False)
 class BookmarkFolder:
     """
     Attributes
@@ -18,47 +20,43 @@ class BookmarkFolder:
         The ID of the folder.
     name : :class:`str`
         The name of the folder
-    media : :class:`str`
+    media : :class:`dict`
         Icon image data.
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    name: str = ''
+    media: dict = field(default_factory=dict)
 
-        self.id: str = data['id']
-        self.name: str = data['name']
-        self.media: dict = data['media']
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> BookmarkFolder:
+        return cls(
+            _client=client,
+            id=data['id'],
+            name=data['name'],
+            media=data['media'],
+        )
 
     async def get_tweets(self, cursor: str | None = None) -> Result[Tweet]:
-        """
-        Retrieves tweets from the folder.
-        """
+        """Retrieves tweets from the folder."""
         return await self._client.get_bookmarks(
             cursor=cursor, folder_id=self.id
         )
 
     async def edit(self, name: str) -> BookmarkFolder:
-        """
-        Edits the folder.
-        """
+        """Edits the folder."""
         return await self._client.edit_bookmark_folder(self.id, name)
 
     async def delete(self) -> Response:
-        """
-        Deletes the folder.
-        """
+        """Deletes the folder."""
         return await self._client.delete_bookmark_folder(self.id)
 
     async def add(self, tweet_id: str) -> Response:
-        """
-        Adds a tweet to the folder.
-        """
+        """Adds a tweet to the folder."""
         return await self._client.bookmark_tweet(tweet_id, self.id)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, BookmarkFolder) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, BookmarkFolder) and self.id == other.id
 
     def __repr__(self) -> str:
         return f'<BookmarkFolder id="{self.id}">'

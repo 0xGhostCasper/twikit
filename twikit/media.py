@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import m3u8
@@ -10,6 +11,7 @@ if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Media:
     """
     A base class representing media object.
@@ -41,9 +43,8 @@ class Media:
         The height of the media.
     focus_rects : :class:`list`
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-        self._data = data
+    _client: Client = field(repr=False, compare=False)
+    _data: dict = field(repr=False, compare=False, default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -77,7 +78,6 @@ class Media:
     def url(self) -> str:
         return self._data.get('url')
 
-    # Add source user
     @property
     def sizes(self) -> dict:
         return self._data.get('sizes')
@@ -98,6 +98,10 @@ class Media:
     def focus_rects(self) -> list:
         return self.original_info.get('focus_rects')
 
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Media:
+        return cls(_client=client, _data=data)
+
     async def get(self) -> bytes:
         response = await self._client.http.get(self.media_url)
         return response.content
@@ -110,6 +114,7 @@ class Media:
         return f'<{self.__class__.__name__} id={self.id}>'
 
 
+@dataclass(eq=False, repr=False)
 class Photo(Media):
     """
     A class representing a photo media object.
@@ -124,6 +129,7 @@ class Photo(Media):
         return self._data.get('features')
 
 
+@dataclass(eq=False, repr=False)
 class Stream:
     """
     The Stream class represents a media stream
@@ -137,9 +143,8 @@ class Stream:
     content_type : :class:`str`
         The mimetype of the stream content.
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-        self._data = data
+    _client: Client = field(repr=False, compare=False)
+    _data: dict = field(repr=False, compare=False, default_factory=dict)
 
     @property
     def url(self) -> str:
@@ -152,6 +157,10 @@ class Stream:
     @property
     def content_type(self) -> str:
         return self._data.get('content-type')
+
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Stream:
+        return cls(_client=client, _data=data)
 
     async def get(self) -> bytes:
         """
@@ -181,6 +190,7 @@ class Stream:
         return f'<Stream url="{self.url}">'
 
 
+@dataclass(eq=False, repr=False)
 class AnimatedGif(Media):
     """
     A class representing an animated GIF media object.
@@ -204,9 +214,10 @@ class AnimatedGif(Media):
 
     @property
     def streams(self) -> list:
-        return [Stream(self._client, stream_data) for stream_data in self.video_info.get('variants')]
+        return [Stream.from_data(self._client, stream_data) for stream_data in self.video_info.get('variants')]
 
 
+@dataclass(eq=False, repr=False)
 class Video(Media):
     """
     A class representing a video media object.
@@ -231,11 +242,9 @@ class Video(Media):
     streams : list[:class:`Stream`]
         The list of video streams for the video.
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        super().__init__(client, data)
-        self._playlist: M3U8 | None = None
-        self._subtitles_playlist: M3U8 | None = None
-        self._base_url = 'https://video.twimg.com'
+    _playlist: M3U8 | None = field(default=None, repr=False, compare=False)
+    _subtitles_playlist: M3U8 | None = field(default=None, repr=False, compare=False)
+    _base_url: str = field(default='https://video.twimg.com', repr=False, compare=False)
 
     @property
     def video_info(self) -> dict:
@@ -259,7 +268,7 @@ class Video(Media):
             lambda x: x['content_type'].startswith('video'),
             self._streams
         )
-        return [Stream(self._client, stream_data) for stream_data in video_streams]
+        return [Stream.from_data(self._client, stream_data) for stream_data in video_streams]
 
     async def _get_playlist(self) -> M3U8 | None:
         # Returns M3U8 object includes stream information.
@@ -343,4 +352,4 @@ def _media_from_data(client, data) -> Media:
     if not cls:
         print('unknown media type')
         return
-    return cls(client, data)
+    return cls.from_data(client, data)

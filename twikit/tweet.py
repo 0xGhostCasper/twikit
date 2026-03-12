@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -16,97 +17,41 @@ if TYPE_CHECKING:
     from .utils import Result
 
 
+@dataclass(eq=False, repr=False)
 class Tweet:
     """
     Attributes
     ----------
     id : :class:`str`
         The unique identifier of the tweet.
-    created_at : :class:`str`
-        The date and time when the tweet was created.
-    created_at_datetime : :class:`datetime`
-        The created_at converted to datetime.
     user: :class:`User`
         Author of the tweet.
-    text : :class:`str`
-        The full text of the tweet.
-    lang : :class:`str`
-        The language of the tweet.
-    in_reply_to : :class:`str`
-        The tweet ID this tweet is in reply to, if any
-    is_quote_status : :class:`bool`
-        Indicates if the tweet is a quote status.
-    quote : :class:`Tweet` | None
-        The Tweet being quoted (if any)
-    retweeted_tweet : :class:`Tweet` | None
-        The Tweet being retweeted (if any)
-    possibly_sensitive : :class:`bool`
-        Indicates if the tweet content may be sensitive.
-    possibly_sensitive_editable : :class:`bool`
-        Indicates if the tweet's sensitivity can be edited.
-    quote_count : :class:`int`
-        The count of quotes for the tweet.
-    media : list[:class:`.media.Photo` | :class:`.media.AnimatedGif` | :class:`.media.Video`]
-        A list of media entities associated with the tweet.
-        https://github.com/d60/twikit/blob/main/examples/download_tweet_media.py
-    reply_count : :class:`int`
-        The count of replies to the tweet.
-    favorite_count : :class:`int`
-        The count of favorites or likes for the tweet.
-    favorited : :class:`bool`
-        Indicates if the tweet is favorited.
-    view_count: :class:`int` | None
-        The count of views.
-    view_count_state : :class:`str` | None
-        The state of the tweet views.
-    retweet_count : :class:`int`
-        The count of retweets for the tweet.
-    bookmark_count : :class:`int`
-        The count of bookmarks for the tweet.
-    bookmarked : :class:`bool`
-        Indicates if the tweet is bookmarked.
-    place : :class:`.Place` | None
-        The location associated with the tweet.
-    editable_until_msecs : :class:`int`
-        The timestamp until which the tweet is editable.
-    is_translatable : :class:`bool`
-        Indicates if the tweet is translatable.
-    is_edit_eligible : :class:`bool`
-        Indicates if the tweet is eligible for editing.
-    edits_remaining : :class:`int`
-        The remaining number of edits allowed for the tweet.
-    edit_tweet_ids : :class:`list`[:class:`int`]
-        List of tweet IDs representing the edit history of the tweet.
     replies: Result[:class:`Tweet`] | None
         Replies to the tweet.
     reply_to: list[:class:`Tweet`] | None
         A list of Tweet objects representing the tweets to which to reply.
     related_tweets : list[:class:`Tweet`] | None
         Related tweets.
-    hashtags: list[:class:`str`]
-        Hashtags included in the tweet text.
-    has_card : :class:`bool`
-        Indicates if the tweet contains a card.
-    thumbnail_title : :class:`str` | None
-        The title of the webpage displayed inside tweet's card.
-    thumbnail_url : :class:`str` | None
-        Link to the image displayed in the tweet's card.
-    urls : :class:`list`
-        Information about URLs contained in the tweet.
-    full_text : :class:`str` | None
-        The full text of the tweet.
+    thread : list[:class:`Tweet`] | None
+        Tweet thread.
     """
+    _client: Client = field(repr=False, compare=False)
+    _data: dict = field(repr=False, compare=False, default_factory=dict)
+    _legacy: dict = field(repr=False, compare=False, default_factory=dict)
+    user: User | None = None
+    replies: Result[Tweet] | None = None
+    reply_to: list[Tweet] | None = None
+    related_tweets: list[Tweet] | None = None
+    thread: list[Tweet] | None = None
 
-    def __init__(self, client: Client, data: dict, user: User = None) -> None:
-        self._client = client
-        self._data = data
-        self._legacy: dict = self._data['legacy']
-        self.user = user
-
-        self.replies: Result[Tweet] | None = None
-        self.reply_to: list[Tweet] | None = None
-        self.related_tweets: list[Tweet] | None = None
-        self.thread: list[Tweet] | None = None
+    @classmethod
+    def from_data(cls, client: Client, data: dict, user: User = None) -> Tweet:
+        return cls(
+            _client=client,
+            _data=data,
+            _legacy=data['legacy'],
+            user=user,
+        )
 
     @property
     def id(self) -> str:
@@ -125,8 +70,38 @@ class Tweet:
         return self._legacy['lang']
 
     @property
+    def source(self) -> str | None:
+        """The client application used to post the tweet (e.g. 'Twitter for iPhone')."""
+        return self._data.get('source')
+
+    @property
+    def conversation_id(self) -> str | None:
+        """The conversation/thread ID this tweet belongs to."""
+        return self._legacy.get('conversation_id_str')
+
+    @property
     def in_reply_to(self) -> str | None:
         return self._legacy.get('in_reply_to_status_id_str')
+
+    @property
+    def in_reply_to_screen_name(self) -> str | None:
+        """The screen name of the user being replied to."""
+        return self._legacy.get('in_reply_to_screen_name')
+
+    @property
+    def in_reply_to_user_id(self) -> str | None:
+        """The user ID of the user being replied to."""
+        return self._legacy.get('in_reply_to_user_id_str')
+
+    @property
+    def display_text_range(self) -> list[int] | None:
+        """The display text range [start, end]."""
+        return self._legacy.get('display_text_range')
+
+    @property
+    def retweeted(self) -> bool:
+        """Whether the authenticated user has retweeted this tweet."""
+        return self._legacy.get('retweeted', False)
 
     @property
     def is_quote_status(self) -> bool:
@@ -306,12 +281,12 @@ class Tweet:
             'name' in self._data['card']['legacy'] and
             self._data['card']['legacy']['name'].startswith('poll')
         ):
-            return Poll(self._client, self._data['card'], self)
+            return Poll.from_data(self._client, self._data['card'], self)
 
     @property
     def place(self) -> Place:
         if self._place_data:
-            return Place(self._client, self._place_data)
+            return Place.from_data(self._client, self._place_data)
 
     @property
     def media(self) -> list[MEDIA_TYPE]:
@@ -325,107 +300,31 @@ class Tweet:
         return m
 
     async def delete(self) -> Response:
-        """Deletes the tweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        Examples
-        --------
-        >>> await tweet.delete()
-        """
+        """Deletes the tweet."""
         return await self._client.delete_tweet(self.id)
 
     async def favorite(self) -> Response:
-        """
-        Favorites the tweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.favorite_tweet
-        """
+        """Favorites the tweet."""
         return await self._client.favorite_tweet(self.id)
 
     async def unfavorite(self) -> Response:
-        """
-        Favorites the tweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.unfavorite_tweet
-        """
+        """Unfavorites the tweet."""
         return await self._client.unfavorite_tweet(self.id)
 
     async def retweet(self) -> Response:
-        """
-        Retweets the tweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.retweet
-        """
+        """Retweets the tweet."""
         return await self._client.retweet(self.id)
 
     async def delete_retweet(self) -> Response:
-        """
-        Deletes the retweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.delete_retweet
-        """
+        """Deletes the retweet."""
         return await self._client.delete_retweet(self.id)
 
     async def bookmark(self) -> Response:
-        """
-        Adds the tweet to bookmarks.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.bookmark_tweet
-        """
+        """Adds the tweet to bookmarks."""
         return await self._client.bookmark_tweet(self.id)
 
     async def delete_bookmark(self) -> Response:
-        """
-        Removes the tweet from bookmarks.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        See Also
-        --------
-        Client.delete_bookmark
-        """
+        """Removes the tweet from bookmarks."""
         return await self._client.delete_bookmark(self.id)
 
     async def reply(
@@ -434,38 +333,7 @@ class Tweet:
         media_ids: list[str] | None = None,
         **kwargs
     ) -> Tweet:
-        """
-        Replies to the tweet.
-
-        Parameters
-        ----------
-        text : :class:`str`, default=''
-            The text content of the reply.
-        media_ids : list[:class:`str`], default=None
-            A list of media IDs or URIs to attach to the reply.
-            Media IDs can be obtained by using the `upload_media` method.
-
-        Returns
-        -------
-        :class:`Tweet`
-            The created tweet.
-
-        Examples
-        --------
-        >>> tweet_text = 'Example text'
-        >>> media_ids = [
-        ...     client.upload_media('image1.png'),
-        ...     client.upload_media('image2.png')
-        ... ]
-        >>> await tweet.reply(
-        ...     tweet_text,
-        ...     media_ids=media_ids
-        ... )
-
-        See Also
-        --------
-        `Client.upload_media`
-        """
+        """Replies to the tweet."""
         return await self._client.create_tweet(
             text, media_ids, reply_to=self.id, **kwargs
         )
@@ -473,112 +341,23 @@ class Tweet:
     async def get_retweeters(
         self, count: str = 40, cursor: str | None = None
     ) -> Result[User]:
-        """
-        Retrieve users who retweeted the tweet.
-
-        Parameters
-        ----------
-        count : :class:`int`, default=40
-            The maximum number of users to retrieve.
-        cursor : :class:`str`, default=None
-            A string indicating the position of the cursor for pagination.
-
-        Returns
-        -------
-        Result[:class:`User`]
-            A list of users who retweeted the tweet.
-
-        Examples
-        --------
-        >>> tweet_id = '...'
-        >>> retweeters = tweet.get_retweeters()
-        >>> print(retweeters)
-        [<User id="...">, <User id="...">, ..., <User id="...">]
-
-        >>> more_retweeters = retweeters.next()  # Retrieve more retweeters.
-        >>> print(more_retweeters)
-        [<User id="...">, <User id="...">, ..., <User id="...">]
-        """
+        """Retrieve users who retweeted the tweet."""
         return await self._client.get_retweeters(self.id, count, cursor)
 
     async def get_favoriters(
         self, count: str = 40, cursor: str | None = None
     ) -> Result[User]:
-        """
-        Retrieve users who favorited a specific tweet.
-
-        Parameters
-        ----------
-        tweet_id : :class:`str`
-            The ID of the tweet.
-        count : :class:`int`, default=40
-            The maximum number of users to retrieve.
-        cursor : :class:`str`, default=None
-            A string indicating the position of the cursor for pagination.
-
-        Returns
-        -------
-        Result[:class:`User`]
-            A list of users who favorited the tweet.
-
-        Examples
-        --------
-        >>> tweet_id = '...'
-        >>> favoriters = tweet.get_favoriters()
-        >>> print(favoriters)
-        [<User id="...">, <User id="...">, ..., <User id="...">]
-
-        >>> more_favoriters = favoriters.next()  # Retrieve more favoriters.
-        >>> print(more_favoriters)
-        [<User id="...">, <User id="...">, ..., <User id="...">]
-        """
+        """Retrieve users who favorited the tweet."""
         return await self._client.get_favoriters(self.id, count, cursor)
 
     async def get_similar_tweets(self) -> list[Tweet]:
-        """
-        Retrieves tweets similar to the tweet (Twitter premium only).
-
-        Returns
-        -------
-        list[:class:`Tweet`]
-            A list of Tweet objects representing tweets
-            similar to the tweet.
-        """
+        """Retrieves tweets similar to the tweet (Twitter premium only)."""
         return await self._client.get_similar_tweets(self.id)
 
     async def get_quotes(
         self, count: int = 20, cursor: str | None = None
     ) -> Result[Tweet]:
-        """
-        Retrieve tweets that quote this tweet.
-
-        Parameters
-        ----------
-        count : :class:`int`, default=20
-            The number of quote tweets to retrieve per request (1-20).
-        cursor : :class:`str`, default=None
-            Token to retrieve more quote tweets.
-
-        Returns
-        -------
-        Result[:class:`Tweet`]
-            A Result containing tweets that quote this tweet.
-
-        Examples
-        --------
-        >>> quotes = await tweet.get_quotes()
-        >>> for quote in quotes:
-        ...     print(quote)
-        <Tweet id="...">
-        <Tweet id="...">
-
-        >>> # Retrieve more quotes
-        >>> more_quotes = await quotes.next()
-        >>> for quote in more_quotes:
-        ...     print(quote)
-        <Tweet id="...">
-        <Tweet id="...">
-        """
+        """Retrieve tweets that quote this tweet."""
         return await self._client.get_tweet_quotes(self.id, count, cursor)
 
     async def update(self) -> None:
@@ -588,11 +367,8 @@ class Tweet:
     def __repr__(self) -> str:
         return f'<Tweet id="{self.id}">'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Tweet) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Tweet) and self.id == other.id
 
 
 def tweet_from_data(client: Client, data: dict) -> Tweet:
@@ -608,87 +384,85 @@ def tweet_from_data(client: Client, data: dict) -> Tweet:
         tweet_data = tweet_data['tweet']
     if 'core' not in tweet_data:
         return None
-    if 'result' not in tweet_data['core']['user_results']:
+    user_results = tweet_data['core'].get('user_results')
+    if not user_results or 'result' not in user_results:
         return None
     if 'legacy' not in tweet_data:
         return None
 
     user_data = tweet_data['core']['user_results']['result']
-    return Tweet(client, tweet_data, User(client, user_data))
+    return Tweet.from_data(client, tweet_data, User.from_data(client, user_data))
 
 
+@dataclass(eq=False, repr=False)
 class ScheduledTweet:
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    execute_at: int = 0
+    state: str = ''
+    type: str = ''
+    text: str = ''
+    media: list = field(default_factory=list)
 
-        self.id = data['rest_id']
-        self.execute_at: int = data['scheduling_info']['execute_at']
-        self.state: str = data['scheduling_info']['state']
-        self.type: str = data['tweet_create_request']['type']
-        self.text: str = data['tweet_create_request']['status']
-        self.media = [i['media_info'] for i in data.get('media_entities', [])]
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> ScheduledTweet:
+        return cls(
+            _client=client,
+            id=data['rest_id'],
+            execute_at=data['scheduling_info']['execute_at'],
+            state=data['scheduling_info']['state'],
+            type=data['tweet_create_request']['type'],
+            text=data['tweet_create_request']['status'],
+            media=[i['media_info'] for i in data.get('media_entities', [])],
+        )
 
     async def delete(self) -> Response:
-        """
-        Delete the scheduled tweet.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-        """
+        """Delete the scheduled tweet."""
         return await self._client.delete_scheduled_tweet(self.id)
 
     def __repr__(self) -> str:
         return f'<ScheduledTweet id="{self.id}">'
 
 
+@dataclass(eq=False, repr=False)
 class TweetTombstone:
-    def __init__(self, client: Client, tweet_id: str, data: dict) -> None:
-        self._client = client
-        self.id = tweet_id
-        self.text: str = data['text']['text']
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    text: str = ''
+
+    @classmethod
+    def from_data(cls, client: Client, tweet_id: str, data: dict) -> TweetTombstone:
+        return cls(
+            _client=client,
+            id=tweet_id,
+            text=data['text']['text'],
+        )
 
     def __repr__(self) -> str:
         return f'<TweetTombstone id="{self.id}">'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, TweetTombstone) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, TweetTombstone) and self.id == other.id
 
 
+@dataclass(eq=False, repr=False)
 class Poll:
-    """Represents a poll associated with a tweet.
-    Attributes
-    ----------
-    tweet : :class:`Tweet`
-        The tweet associated with the poll.
-    id : :class:`str`
-        The unique identifier of the poll.
-    name : :class:`str`
-        The name of the poll.
-    choices : list[:class:`dict`]
-        A list containing dictionaries representing poll choices.
-        Each dictionary contains 'label' and 'count' keys
-        for choice label and count.
-    duration_minutes : :class:`int`
-        The duration of the poll in minutes.
-    end_datetime_utc : :class:`str`
-        The end date and time of the poll in UTC format.
-    last_updated_datetime_utc : :class:`str`
-        The last updated date and time of the poll in UTC format.
-    selected_choice : :class:`str` | None
-        Number of the selected choice.
-    """
+    """Represents a poll associated with a tweet."""
+    _client: Client = field(repr=False, compare=False)
+    tweet: Tweet | None = None
+    id: str = ''
+    name: str = ''
+    choices: list[dict] = field(default_factory=list)
+    duration_minutes: int = 0
+    end_datetime_utc: str = ''
+    last_updated_datetime_utc: str = ''
+    counts_are_final: bool = False
+    selected_choice: str | None = None
 
-    def __init__(
-        self, client: Client, data: dict, tweet: Tweet | None = None
-    ) -> None:
-        self._client = client
-        self.tweet = tweet
-
+    @classmethod
+    def from_data(
+        cls, client: Client, data: dict, tweet: Tweet | None = None
+    ) -> Poll:
         legacy = data['legacy']
         binding_values = legacy['binding_values']
 
@@ -698,14 +472,11 @@ class Poll:
                 for i in legacy['binding_values']
             }
 
-        self.id: str = data['rest_id']
-        self.name: str = legacy['name']
-
+        poll_name = legacy['name']
         choices_number = int(re.findall(
-            r'poll(\d)choice_text_only', self.name
+            r'poll(\d)choice_text_only', poll_name
         )[0])
         choices = []
-
         for i in range(1, choices_number + 1):
             choice_label = binding_values[f'choice{i}_label']
             choice_count = binding_values.get(f'choice{i}_count', {})
@@ -715,95 +486,71 @@ class Poll:
                 'count': choice_count.get('string_value', '0')
             })
 
-        self.choices = choices
-
-        self.duration_minutes = int(binding_values['duration_minutes']['string_value'])
-        self.end_datetime_utc: str = binding_values['end_datetime_utc']['string_value']
-        updated = binding_values['last_updated_datetime_utc']['string_value']
-        self.last_updated_datetime_utc: str = updated
-
-        self.counts_are_final: bool = binding_values['counts_are_final']['boolean_value']
-
+        selected = None
         if 'selected_choice' in binding_values:
-            self.selected_choice: str = binding_values['selected_choice']['string_value']
-        else:
-            self.selected_choice = None
+            selected = binding_values['selected_choice']['string_value']
+
+        return cls(
+            _client=client,
+            tweet=tweet,
+            id=data['rest_id'],
+            name=poll_name,
+            choices=choices,
+            duration_minutes=int(binding_values['duration_minutes']['string_value']),
+            end_datetime_utc=binding_values['end_datetime_utc']['string_value'],
+            last_updated_datetime_utc=binding_values['last_updated_datetime_utc']['string_value'],
+            counts_are_final=binding_values['counts_are_final']['boolean_value'],
+            selected_choice=selected,
+        )
 
     async def vote(self, selected_choice: str) -> Poll:
-        """
-        Vote on the poll with the specified selected choice.
-        Parameters
-        ----------
-        selected_choice : :class:`str`
-            The label of the selected choice for the vote.
-        Returns
-        -------
-        :class:`Poll`
-            The Poll object representing the updated poll after voting.
-        """
+        """Vote on the poll with the specified selected choice."""
         return await self._client.vote(
-            selected_choice,
-            self.id,
-            self.tweet.id,
-            self.name
+            selected_choice, self.id, self.tweet.id, self.name
         )
 
     def __repr__(self) -> str:
         return f'<Poll id="{self.id}">'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Poll) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Poll) and self.id == other.id
 
 
+@dataclass(eq=False, repr=False)
 class CommunityNote:
-    """Represents a community note.
+    """Represents a community note."""
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    text: str = ''
+    misleading_tags: list[str] | None = None
+    trustworthy_sources: bool | None = None
+    helpful_tags: list[str] | None = None
+    created_at: int | None = None
+    can_appeal: bool | None = None
+    appeal_status: str | None = None
+    is_media_note: bool | None = None
+    media_note_matches: str | None = None
+    birdwatch_profile: dict | None = None
+    tweet_id: str = ''
 
-    Attributes
-    ----------
-    id : :class:`str`
-        The ID of the community note.
-    text : :class:`str`
-        The text content of the community note.
-    misleading_tags : list[:class:`str`]
-        A list of tags indicating misleading information.
-    trustworthy_sources : :class:`bool`
-        Indicates if the sources are trustworthy.
-    helpful_tags : list[:class:`str`]
-        A list of tags indicating helpful information.
-    created_at : :class:`int`
-        The timestamp when the note was created.
-    can_appeal : :class:`bool`
-        Indicates if the note can be appealed.
-    appeal_status : :class:`str`
-        The status of the appeal.
-    is_media_note : :class:`bool`
-        Indicates if the note is related to media content.
-    media_note_matches : :class:`str`
-        Matches related to media content.
-    birdwatch_profile : :class:`dict`
-        Birdwatch profile associated with the note.
-    tweet_id : :class:`str`
-        The ID of the tweet associated with the note.
-    """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-        self.id: str = data['rest_id']
-
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> CommunityNote:
         data_v1 = data['data_v1']
-        self.text: str = data_v1['summary']['text']
-        self.misleading_tags: list[str] = data_v1.get('misleading_tags')
-        self.trustworthy_sources: bool = data_v1.get('trustworthy_sources')
-        self.helpful_tags: list[str] = data.get('helpful_tags')
-        self.created_at: int = data.get('created_at')
-        self.can_appeal: bool = data.get('can_appeal')
-        self.appeal_status: str = data.get('appeal_status')
-        self.is_media_note: bool = data.get('is_media_note')
-        self.media_note_matches: str = data.get('media_note_matches')
-        self.birdwatch_profile: dict = data.get('birdwatch_profile')
-        self.tweet_id: str = data['tweet_results']['result']['rest_id']
+        return cls(
+            _client=client,
+            id=data['rest_id'],
+            text=data_v1['summary']['text'],
+            misleading_tags=data_v1.get('misleading_tags'),
+            trustworthy_sources=data_v1.get('trustworthy_sources'),
+            helpful_tags=data.get('helpful_tags'),
+            created_at=data.get('created_at'),
+            can_appeal=data.get('can_appeal'),
+            appeal_status=data.get('appeal_status'),
+            is_media_note=data.get('is_media_note'),
+            media_note_matches=data.get('media_note_matches'),
+            birdwatch_profile=data.get('birdwatch_profile'),
+            tweet_id=data['tweet_results']['result']['rest_id'],
+        )
 
     async def update(self) -> None:
         new = await self._client.get_community_note(self.id)
@@ -812,8 +559,5 @@ class CommunityNote:
     def __repr__(self) -> str:
         return f'<CommunityNote id="{self.id}">'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, CommunityNote) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, CommunityNote) and self.id == other.id

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -8,6 +9,7 @@ if TYPE_CHECKING:
     from .user import User
 
 
+@dataclass(eq=False, repr=False)
 class Notification:
     """
     Attributes
@@ -25,23 +27,30 @@ class Notification:
     from_user : :class:`.User`
         The user who triggered the notification.
     """
-    def __init__(
-        self, client: Client, data: dict, tweet: Tweet, from_user: User
-    ) -> None:
-        self._client = client
-        self.tweet = tweet
-        self.from_user = from_user
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    timestamp_ms: int = 0
+    icon: dict = field(default_factory=dict)
+    message: str = ''
+    tweet: Tweet | None = None
+    from_user: User | None = None
 
-        self.id: str = data['id']
-        self.timestamp_ms: int = int(data['timestampMs'])
-        self.icon: dict = data['icon']
-        self.message: str = data['message']['text']
+    @classmethod
+    def from_data(
+        cls, client: Client, data: dict, tweet: Tweet, from_user: User
+    ) -> Notification:
+        return cls(
+            _client=client,
+            id=data['id'],
+            timestamp_ms=int(data['timestampMs']),
+            icon=data['icon'],
+            message=data['message']['text'],
+            tweet=tweet,
+            from_user=from_user,
+        )
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Notification) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Notification) and self.id == other.id
 
     def __repr__(self) -> str:
         return f'<Notification id="{self.id}">'

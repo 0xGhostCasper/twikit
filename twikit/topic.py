@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Topic:
     """
     Represents a Twitter Topic.
@@ -23,21 +25,26 @@ class Topic:
     following : :class:`bool`
         Whether the user follows this topic.
     """
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    name: str = ''
+    description: str = ''
+    not_interested: bool = False
+    following: bool = False
 
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-
-        self.id: str = data.get('id', data.get('rest_id', ''))
-        self.name: str = data.get('name', '')
-        self.description: str = data.get('description', '')
-        self.not_interested: bool = data.get('not_interested', False)
-        self.following: bool = data.get('following', False)
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Topic:
+        return cls(
+            _client=client,
+            id=data.get('id', data.get('rest_id', '')),
+            name=data.get('name', ''),
+            description=data.get('description', ''),
+            not_interested=data.get('not_interested', False),
+            following=data.get('following', False),
+        )
 
     def __repr__(self) -> str:
         return f'<Topic id="{self.id}" name="{self.name}">'
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Topic) and self.id == other.id
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other

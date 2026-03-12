@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Broadcast:
     """
     Represents a Twitter Broadcast (live video).
@@ -33,26 +35,36 @@ class Broadcast:
     image_url : :class:`str` | None
         The thumbnail/image URL.
     """
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    title: str = ''
+    state: str = ''
+    media_key: str = ''
+    created_at: int = 0
+    started_at: int = 0
+    ended_at: int | None = None
+    total_participants: int = 0
+    total_replay_watched: int = 0
+    image_url: str | None = None
 
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-
-        self.id: str = data.get('id', '')
-        self.title: str = data.get('title', '')
-        self.state: str = data.get('state', '')
-        self.media_key: str = data.get('media_key', '')
-        self.created_at: int = data.get('created_at_ms', 0)
-        self.started_at: int = data.get('start', 0)
-        self.ended_at: int | None = data.get('end')
-        self.total_participants: int = data.get('total_participants', 0)
-        self.total_replay_watched: int = data.get('total_replay_watched', 0)
-        self.image_url: str | None = data.get('image_url')
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Broadcast:
+        return cls(
+            _client=client,
+            id=data.get('id', ''),
+            title=data.get('title', ''),
+            state=data.get('state', ''),
+            media_key=data.get('media_key', ''),
+            created_at=data.get('created_at_ms', 0),
+            started_at=data.get('start', 0),
+            ended_at=data.get('end'),
+            total_participants=data.get('total_participants', 0),
+            total_replay_watched=data.get('total_replay_watched', 0),
+            image_url=data.get('image_url'),
+        )
 
     def __repr__(self) -> str:
         return f'<Broadcast id="{self.id}" title="{self.title}">'
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, Broadcast) and self.id == other.id
-
-    def __ne__(self, other: object) -> bool:
-        return not self == other

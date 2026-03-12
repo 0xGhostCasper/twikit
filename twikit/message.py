@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -8,6 +9,7 @@ if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Message:
     """
     Represents a direct message.
@@ -22,22 +24,32 @@ class Message:
         The text content of the message.
     attachment : :class:`dict`
         Attachment Information.
+    sender_id : :class:`str`
+        The ID of the sender.
+    recipient_id : :class:`str` | None
+        The ID of the recipient.
     """
-    def __init__(
-        self,
-        client: Client,
-        data: dict,
-        sender_id: str,
-        recipient_id: str
-    ) -> None:
-        self._client = client
-        self.sender_id = sender_id
-        self.recipient_id = recipient_id
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    time: str = ''
+    text: str = ''
+    attachment: dict | None = None
+    sender_id: str = ''
+    recipient_id: str | None = None
 
-        self.id: str = data['id']
-        self.time: str = data['time']
-        self.text: str = data['text']
-        self.attachment: dict | None = data.get('attachment')
+    @classmethod
+    def from_data(
+        cls, client: Client, data: dict, sender_id: str, recipient_id: str
+    ) -> Message:
+        return cls(
+            _client=client,
+            id=data['id'],
+            time=data['time'],
+            text=data['text'],
+            attachment=data.get('attachment'),
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+        )
 
     async def reply(self, text: str, media_id: str | None = None) -> Message:
         """Replies to the message.
@@ -133,11 +145,8 @@ class Message:
         """
         return await self._client.delete_dm(self.id)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Message) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Message) and self.id == other.id
 
     def __repr__(self) -> str:
         return f'<Message id="{self.id}">'

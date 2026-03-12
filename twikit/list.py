@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
+from .user import User
 from .utils import timestamp_to_datetime
 
 if TYPE_CHECKING:
@@ -10,10 +12,10 @@ if TYPE_CHECKING:
 
     from .client.client import Client
     from .tweet import Tweet
-    from .user import User
     from .utils import Result
 
 
+@dataclass(eq=False, repr=False)
 class List:
     """
     Class representing a Twitter List.
@@ -27,8 +29,7 @@ class List:
     default_banner : :class:`dict`
         Information about the default banner of the List.
     banner : :class:`dict`
-        Information about the banner of the List. If custom banner is not set,
-        it defaults to the default banner.
+        Information about the banner of the List.
     description : :class:`str`
         The description of the List.
     following : :class:`bool`
@@ -47,58 +48,79 @@ class List:
         Indicates if the List is pinned.
     subscriber_count : :class:`int`
         The number of subscribers to the List.
+    facepile_urls : list[:class:`str`]
+        Profile image URLs of list members.
+    followers_context : :class:`str` | None
+        Follower context string (e.g. '2.4K followers including @user').
+    members_context : :class:`str` | None
+        Member context string (e.g. '87 members').
+    owner : :class:`User` | None
+        The user who owns the list.
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    created_at: int = 0
+    default_banner: dict = field(default_factory=dict)
+    banner: dict = field(default_factory=dict)
+    description: str = ''
+    following: bool = False
+    is_member: bool = False
+    member_count: int = 0
+    mode: Literal['Private', 'Public'] = 'Public'
+    muting: bool = False
+    name: str = ''
+    pinning: bool = False
+    subscriber_count: int = 0
+    facepile_urls: list[str] = field(default_factory=list)
+    followers_context: str | None = None
+    members_context: str | None = None
+    owner: User | None = None
 
-        self.id: str = data['id_str']
-        self.created_at: int = data['created_at']
-        self.default_banner: dict = data['default_banner_media']['media_info']
-
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> List:
+        default_banner_media = data.get('default_banner_media', {})
+        default_banner = default_banner_media.get('media_info', {})
         if 'custom_banner_media' in data:
-            self.banner: dict = data["custom_banner_media"]["media_info"]
+            banner = data['custom_banner_media'].get('media_info', default_banner)
         else:
-            self.banner: dict = self.default_banner
+            banner = default_banner
 
-        self.description: str = data['description']
-        self.following: bool = data['following']
-        self.is_member: bool = data['is_member']
-        self.member_count: bool = data['member_count']
-        self.mode: Literal['Private', 'Public'] = data['mode']
-        self.muting: bool = data['muting']
-        self.name: str = data['name']
-        self.pinning: bool = data['pinning']
-        self.subscriber_count: int = data['subscriber_count']
+        owner = None
+        user_results = data.get('user_results', {})
+        if 'result' in user_results:
+            owner = User.from_data(client, user_results['result'])
+
+        return cls(
+            _client=client,
+            id=data.get('id_str', ''),
+            created_at=data.get('created_at', 0),
+            default_banner=default_banner,
+            banner=banner,
+            description=data.get('description', ''),
+            following=data.get('following', False),
+            is_member=data.get('is_member', False),
+            member_count=data.get('member_count', 0),
+            mode=data.get('mode', 'Public'),
+            muting=data.get('muting', False),
+            name=data.get('name', ''),
+            pinning=data.get('pinning', False),
+            subscriber_count=data.get('subscriber_count', 0),
+            facepile_urls=data.get('facepile_urls', []) or [],
+            followers_context=data.get('followers_context'),
+            members_context=data.get('members_context'),
+            owner=owner,
+        )
 
     @property
     def created_at_datetime(self) -> datetime:
         return timestamp_to_datetime(self.created_at)
 
     async def edit_banner(self, media_id: str) -> Response:
-        """
-        Edit the banner image of the list.
-
-        Parameters
-        ----------
-        media_id : :class:`str`
-            The ID of the media to use as the new banner image.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        Examples
-        --------
-        >>> media_id = await client.upload_media('image.png')
-        >>> await media.edit_banner(media_id)
-        """
+        """Edit the banner image of the list."""
         return await self._client.edit_list_banner(self.id, media_id)
 
     async def delete_banner(self) -> Response:
-        """
-        Deletes the list banner.
-        """
+        """Deletes the list banner."""
         return await self._client.delete_list_banner(self.id)
 
     async def edit(
@@ -107,149 +129,43 @@ class List:
         description: str | None = None,
         is_private: bool | None = None
     ) -> List:
-        """
-        Edits list information.
-
-        Parameters
-        ----------
-        name : :class:`str`, default=None
-            The new name for the list.
-        description : :class:`str`, default=None
-            The new description for the list.
-        is_private : :class:`bool`, default=None
-            Indicates whether the list should be private
-            (True) or public (False).
-
-        Returns
-        -------
-        :class:`List`
-            The updated Twitter list.
-
-        Examples
-        --------
-        >>> await list.edit(
-        ...     'new name', 'new description', True
-        ... )
-        """
+        """Edits list information."""
         return await self._client.edit_list(
             self.id, name, description, is_private
         )
 
     async def add_member(self, user_id: str) -> Response:
-        """
-        Adds a member to the list.
-        """
+        """Adds a member to the list."""
         return await self._client.add_list_member(self.id, user_id)
 
     async def remove_member(self, user_id: str) -> Response:
-        """
-        Removes a member from the list.
-        """
+        """Removes a member from the list."""
         return await self._client.remove_list_member(self.id, user_id)
 
     async def get_tweets(
         self, count: int = 20, cursor: str | None = None
     ) -> Result[Tweet]:
-        """
-        Retrieves tweets from the list.
-
-        Parameters
-        ----------
-        count : :class:`int`, default=20
-            The number of tweets to retrieve.
-        cursor : :class:`str`, default=None
-            The cursor for pagination.
-
-        Returns
-        -------
-        Result[:class:`Tweet`]
-            A Result object containing the retrieved tweets.
-
-        Examples
-        --------
-        >>> tweets = await list.get_tweets()
-        >>> for tweet in tweets:
-        ...    print(tweet)
-        <Tweet id="...">
-        <Tweet id="...">
-        ...
-        ...
-
-        >>> more_tweets = await tweets.next()  # Retrieve more tweets
-        >>> for tweet in more_tweets:
-        ...     print(tweet)
-        <Tweet id="...">
-        <Tweet id="...">
-        ...
-        ...
-        """
+        """Retrieves tweets from the list."""
         return await self._client.get_list_tweets(self.id, count, cursor)
 
     async def get_members(
         self, count: int = 20, cursor: str | None = None
     ) -> Result[User]:
-        """Retrieves members of the list.
-
-        Parameters
-        ----------
-        count : :class:`int`, default=20
-            Number of members to retrieve.
-
-        Returns
-        -------
-        Result[:class:`User`]
-            Members of the list
-
-        Examples
-        --------
-        >>> members = list_.get_members()
-        >>> for member in members:
-        ...     print(member)
-        <User id="...">
-        <User id="...">
-        ...
-        ...
-        >>> more_members = members.next()  # Retrieve more members
-        """
+        """Retrieves members of the list."""
         return await self._client.get_list_members(self.id, count, cursor)
 
     async def get_subscribers(
         self, count: int = 20, cursor: str | None = None
     ) -> Result[User]:
-        """Retrieves subscribers of the list.
-
-        Parameters
-        ----------
-        count : :class:`int`, default=20
-            Number of subscribers to retrieve.
-
-        Returns
-        -------
-        Result[:class:`User`]
-            Subscribers of the list
-
-        Examples
-        --------
-        >>> subscribers = list_.get_subscribers()
-        >>> for subscriber in subscribers:
-        ...     print(subscriber)
-        <User id="...">
-        <User id="...">
-        ...
-        ...
-        >>> more_subscribers = subscribers.next()  # Retrieve more subscribers
-        """
+        """Retrieves subscribers of the list."""
         return await self._client.get_list_subscribers(self.id, count, cursor)
 
     async def update(self) -> None:
         new = await self._client.get_list(self.id)
         self.__dict__.update(new.__dict__)
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, List) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, List) and self.id == other.id
 
     def __repr__(self) -> str:
         return f'<List id="{self.id}">'

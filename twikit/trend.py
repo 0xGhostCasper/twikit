@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TypedDict, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Trend:
     """
     Attributes
@@ -19,17 +21,24 @@ class Trend:
     grouped_trends : :class:`list`[:class:`str`]
         A list of trend names grouped under the main trend.
     """
+    _client: Client = field(repr=False, compare=False)
+    name: str = ''
+    tweets_count: int | None = None
+    domain_context: str | None = None
+    grouped_trends: list[str] = field(default_factory=list)
 
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Trend:
         metadata: dict = data['trendMetadata']
-        self.name: str = data['name']
-        self.tweets_count: int | None = metadata.get('metaDescription')
-        self.domain_context: str = metadata.get('domainContext')
-        self.grouped_trends: list[str] = [
-            trend['name'] for trend in data.get('groupedTrends', [])
-        ]
+        return cls(
+            _client=client,
+            name=data['name'],
+            tweets_count=metadata.get('metaDescription'),
+            domain_context=metadata.get('domainContext'),
+            grouped_trends=[
+                trend['name'] for trend in data.get('groupedTrends', [])
+            ],
+        )
 
     def __repr__(self) -> str:
         return f'<Trend name="{self.name}">'
@@ -42,6 +51,7 @@ class PlaceTrends(TypedDict):
     locations: dict
 
 
+@dataclass(eq=False, repr=False)
 class PlaceTrend:
     """
     Attributes
@@ -55,30 +65,51 @@ class PlaceTrend:
     tweet_volume : :class:`int`
         The volume of tweets associated with the trend.
     """
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
+    _client: Client = field(repr=False, compare=False)
+    name: str = ''
+    url: str = ''
+    promoted_content: None = None
+    query: str = ''
+    tweet_volume: int = 0
 
-        self.name: str = data['name']
-        self.url: str = data['url']
-        self.promoted_content: None = data['promoted_content']
-        self.query: str = data['query']
-        self.tweet_volume: int = data['tweet_volume']
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> PlaceTrend:
+        return cls(
+            _client=client,
+            name=data['name'],
+            url=data['url'],
+            promoted_content=data['promoted_content'],
+            query=data['query'],
+            tweet_volume=data['tweet_volume'],
+        )
 
     def __repr__(self) -> str:
         return f'<PlaceTrend name="{self.name}">'
 
 
+@dataclass(eq=False, repr=False)
 class Location:
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
+    _client: Client = field(repr=False, compare=False)
+    woeid: int = 0
+    country: str = ''
+    country_code: str = ''
+    name: str = ''
+    parentid: int = 0
+    placeType: dict = field(default_factory=dict)
+    url: str = ''
 
-        self.woeid: int = data['woeid']
-        self.country: str = data['country']
-        self.country_code: str = data['countryCode']
-        self.name: str = data['name']
-        self.parentid: int = data['parentid']
-        self.placeType: dict = data['placeType']
-        self.url: str = data['url']
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Location:
+        return cls(
+            _client=client,
+            woeid=data['woeid'],
+            country=data['country'],
+            country_code=data['countryCode'],
+            name=data['name'],
+            parentid=data['parentid'],
+            placeType=data['placeType'],
+            url=data['url'],
+        )
 
     async def get_trends(self) -> PlaceTrends:
         return await self._client.get_place_trends(self.woeid)
@@ -86,8 +117,5 @@ class Location:
     def __repr__(self) -> str:
         return f'<Location name="{self.name}" woeid={self.woeid}>'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Location) and self.woeid == __value.woeid
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Location) and self.woeid == other.woeid

@@ -183,7 +183,7 @@ class Client:
             response_data = response.text
 
         if isinstance(response_data, dict) and "errors" in response_data:
-            error_code = response_data["errors"][0]["code"]
+            error_code = response_data["errors"][0].get("code")
             error_message = response_data["errors"][0].get("message")
             if error_code in (37, 64):
                 # Account suspended
@@ -866,7 +866,7 @@ class Client:
             if "itemContent" not in item["content"]:
                 continue
             user_info = find_dict(item, "result", find_one=True)[0]
-            results.append(User(self, user_info))
+            results.append(User.from_data(self, user_info))
 
         return Result(
             results,
@@ -1215,7 +1215,7 @@ class Client:
             selected_choice, card_uri, tweet_id, card_name
         )
         card_data = {"rest_id": response["card"]["url"], "legacy": response["card"]}
-        return Poll(self, card_data, None)
+        return Poll.from_data(self, card_data, None)
 
     async def create_tweet(
         self,
@@ -1436,7 +1436,7 @@ class Client:
         if user_data.get("__typename") == "UserUnavailable":
             raise UserUnavailable(user_data.get("message"))
 
-        return User(self, user_data)
+        return User.from_data(self, user_data)
 
     async def get_user_about(self, screen_name: str) -> AccountAbout:
         """
@@ -1459,7 +1459,7 @@ class Client:
         user_data = user_result['result']
         if user_data.get('__typename') == 'UserUnavailable':
             raise UserUnavailable(user_data.get('message'))
-        return AccountAbout(user_data)
+        return AccountAbout.from_data(user_data)
 
     async def get_user_by_id(self, user_id: str) -> User:
         """
@@ -1489,7 +1489,7 @@ class Client:
         user_data = response["data"]["user"]["result"]
         if user_data.get("__typename") == "UserUnavailable":
             raise UserUnavailable(user_data.get("message"))
-        return User(self, user_data)
+        return User.from_data(self, user_data)
 
     async def get_users_by_ids(self, user_ids: list[str]) -> list[User]:
         """
@@ -1521,7 +1521,7 @@ class Client:
             if result.get('__typename') == 'UserUnavailable':
                 continue
             if 'rest_id' in result:
-                results.append(User(self, result))
+                results.append(User.from_data(self, result))
         return results
 
     async def get_users_by_screen_names(self, screen_names: list[str]) -> list[User]:
@@ -1554,7 +1554,7 @@ class Client:
             if result.get('__typename') == 'UserUnavailable':
                 continue
             if 'rest_id' in result:
-                results.append(User(self, result))
+                results.append(User.from_data(self, result))
         return results
 
     async def reverse_geocode(
@@ -1644,7 +1644,7 @@ class Client:
         :class:`.Place`
         """
         response, _ = await self.v11.get_place(id)
-        return Place(self, response)
+        return Place.from_data(self, response)
 
     async def _get_more_replies(self, tweet_id: str, cursor: str) -> Result[Tweet]:
         response, _ = await self.gql.tweet_detail(tweet_id, cursor)
@@ -1951,7 +1951,7 @@ class Client:
         """
         response, _ = await self.gql.fetch_scheduled_tweets()
         tweets = find_dict(response, "scheduled_tweet_list", find_one=True)[0]
-        return [ScheduledTweet(self, tweet) for tweet in tweets]
+        return [ScheduledTweet.from_data(self, tweet) for tweet in tweets]
 
     async def delete_scheduled_tweet(self, tweet_id: str) -> Response:
         """
@@ -1997,7 +1997,7 @@ class Client:
             if not user_info_:
                 continue
             user_info = user_info_[0]
-            results.append(User(self, user_info))
+            results.append(User.from_data(self, user_info))
 
         return Result(
             results,
@@ -2150,7 +2150,7 @@ class Client:
         note_data = response["data"]["birdwatch_note_by_rest_id"]
         if "data_v1" not in note_data:
             raise TwitterException(f"Invalid note id: {note_id}")
-        return CommunityNote(self, note_data)
+        return CommunityNote.from_data(self, note_data)
 
     async def get_user_tweets(
         self,
@@ -2720,7 +2720,7 @@ class Client:
         slice = find_dict(response, "bookmark_collections_slice", find_one=True)[0]
         results = []
         for item in slice["items"]:
-            results.append(BookmarkFolder(self, item))
+            results.append(BookmarkFolder.from_data(self, item))
 
         if "next_cursor" in slice["slice_info"]:
             next_cursor = slice["slice_info"]["next_cursor"]
@@ -2752,7 +2752,7 @@ class Client:
         >>> await client.edit_bookmark_folder('123456789', 'MyFolder')
         """
         response, _ = await self.gql.edit_bookmark_folder(folder_id, name)
-        return BookmarkFolder(self, response["data"]["bookmark_collection_update"])
+        return BookmarkFolder.from_data(self, response["data"]["bookmark_collection_update"])
 
     async def delete_bookmark_folder(self, folder_id: str) -> Response:
         """
@@ -2785,7 +2785,7 @@ class Client:
             Newly created bookmark folder.
         """
         response, _ = await self.gql.create_bookmark_folder(name)
-        return BookmarkFolder(self, response["data"]["bookmark_collection_create"])
+        return BookmarkFolder.from_data(self, response["data"]["bookmark_collection_create"])
 
     async def follow_user(self, user_id: str) -> User:
         """
@@ -2811,7 +2811,7 @@ class Client:
         .unfollow_user
         """
         response, _ = await self.v11.create_friendships(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def unfollow_user(self, user_id: str) -> User:
         """
@@ -2837,7 +2837,7 @@ class Client:
         .follow_user
         """
         response, _ = await self.v11.destroy_friendships(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def block_user(self, user_id: str) -> User:
         """
@@ -2858,7 +2858,7 @@ class Client:
         .unblock_user
         """
         response, _ = await self.v11.create_blocks(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def unblock_user(self, user_id: str) -> User:
         """
@@ -2879,7 +2879,7 @@ class Client:
         .block_user
         """
         response, _ = await self.v11.destroy_blocks(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def mute_user(self, user_id: str) -> User:
         """
@@ -2900,7 +2900,7 @@ class Client:
         .unmute_user
         """
         response, _ = await self.v11.create_mutes(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def unmute_user(self, user_id: str) -> User:
         """
@@ -2921,7 +2921,7 @@ class Client:
         .mute_user
         """
         response, _ = await self.v11.destroy_mutes(user_id)
-        return User(self, build_user_data(response))
+        return User.from_data(self, build_user_data(response))
 
     async def get_trends(
         self,
@@ -2994,7 +2994,7 @@ class Client:
         results = []
         for item in items:
             trend_info = item["item"]["content"]["trend"]
-            results.append(Trend(self, trend_info))
+            results.append(Trend.from_data(self, trend_info))
 
         return results
 
@@ -3007,7 +3007,7 @@ class Client:
         list[:class:`.Location`]
         """
         response, _ = await self.v11.available_trends()
-        return [Location(self, data) for data in response]
+        return [Location.from_data(self, data) for data in response]
 
     async def get_place_trends(self, woeid: int) -> PlaceTrends:
         """
@@ -3017,13 +3017,18 @@ class Client:
         """
         response, _ = await self.v11.place_trends(woeid)
         trend_data = response[0]
-        trends = [PlaceTrend(self, data) for data in trend_data["trends"]]
+        trends = [PlaceTrend.from_data(self, data) for data in trend_data["trends"]]
         trend_data["trends"] = trends
         return trend_data
 
-    async def get_trend_history(self) -> list[dict]:
+    async def get_trend_history(self, trend_id: str) -> list[dict]:
         """
-        Retrieves the user's trend history (previously viewed trends).
+        Retrieves the history of a specific trend.
+
+        Parameters
+        ----------
+        trend_id : :class:`str`
+            The ID of the trend (e.g. 'trends_trend-123').
 
         Returns
         -------
@@ -3033,22 +3038,22 @@ class Client:
 
         Examples
         --------
-        >>> history = await client.get_trend_history()
+        >>> history = await client.get_trend_history('trends_trend-123')
         >>> for entry in history:
         ...     print(entry)
         """
-        response, _ = await self.gql.trend_history()
+        response, _ = await self.gql.trend_history(trend_id)
         entries = response.get('data', {}).get('trends_history', {}).get('entries', [])
         return entries
 
-    async def get_trend_relevant_users(self, trend_name: str) -> list[User]:
+    async def get_trend_relevant_users(self, trend_id: str) -> list[User]:
         """
         Retrieves users relevant to a specific trend.
 
         Parameters
         ----------
-        trend_name : :class:`str`
-            The name of the trend to look up relevant users for.
+        trend_id : :class:`str`
+            The ID of the trend to look up relevant users for.
 
         Returns
         -------
@@ -3057,17 +3062,17 @@ class Client:
 
         Examples
         --------
-        >>> users = await client.get_trend_relevant_users('#Python')
+        >>> users = await client.get_trend_relevant_users('trends_trend-123')
         >>> for user in users:
         ...     print(user)
         <User id="...">
         """
-        response, _ = await self.gql.trend_relevant_users(trend_name)
+        response, _ = await self.gql.trend_relevant_users(trend_id)
         user_results = find_dict(response, 'result', find_one=False)
         results = []
         for user_data in user_results:
             if isinstance(user_data, dict) and user_data.get('__typename') in ('User', 'UserResults'):
-                results.append(User(self, user_data))
+                results.append(User.from_data(self, user_data))
         return results
 
     async def get_audio_space(self, space_id: str) -> AudioSpace:
@@ -3092,7 +3097,7 @@ class Client:
         """
         response, _ = await self.gql.audio_space_by_id(space_id)
         space_data = response.get('data', {}).get('audioSpace', {})
-        return AudioSpace(self, space_data)
+        return AudioSpace.from_data(self, space_data)
 
     async def search_audio_spaces(
         self,
@@ -3136,7 +3141,7 @@ class Client:
             for item in items:
                 space_data = item.get('space', {})
                 if space_data:
-                    results.append(AudioSpace(self, space_data))
+                    results.append(AudioSpace.from_data(self, space_data))
             cursor_info = section.get('destination', {})
             if cursor_info.get('cursor'):
                 next_cursor = cursor_info['cursor']
@@ -3169,7 +3174,7 @@ class Client:
         """
         response, _ = await self.gql.topic_by_rest_id(topic_id)
         topic_data = response.get('data', {}).get('topic_by_rest_id', {})
-        return Topic(self, topic_data)
+        return Topic.from_data(self, topic_data)
 
     async def get_topic_tweets(
         self,
@@ -3249,7 +3254,7 @@ class Client:
         """
         response, _ = await self.gql.article_result_by_rest_id(article_id)
         article_data = response.get('data', {}).get('article_entity_result', {})
-        return Article(self, article_data)
+        return Article.from_data(self, article_data)
 
     async def get_broadcast(self, broadcast_id: str) -> Broadcast:
         """
@@ -3273,7 +3278,7 @@ class Client:
         """
         response, _ = await self.gql.broadcast_query(broadcast_id)
         broadcast_data = response.get('data', {}).get('broadcast', {})
-        return Broadcast(self, broadcast_data)
+        return Broadcast.from_data(self, broadcast_data)
 
     async def get_community_notes(self, tweet_id: str) -> list[CommunityNote]:
         """
@@ -3301,7 +3306,7 @@ class Client:
         results = []
         for note_data in bw_notes:
             if isinstance(note_data, dict) and note_data.get('rest_id'):
-                results.append(CommunityNote(self, note_data))
+                results.append(CommunityNote.from_data(self, note_data))
         return results
 
     async def get_community_notes_for_url(
@@ -3345,7 +3350,7 @@ class Client:
                 continue
             note_data = find_dict(item, 'birdwatch_note', find_one=True)
             if note_data:
-                results.append(CommunityNote(self, note_data[0]))
+                results.append(CommunityNote.from_data(self, note_data[0]))
 
         return Result(
             results,
@@ -3393,7 +3398,7 @@ class Client:
                 continue
             note_data = find_dict(item, 'birdwatch_note', find_one=True)
             if note_data:
-                results.append(CommunityNote(self, note_data[0]))
+                results.append(CommunityNote.from_data(self, note_data[0]))
 
         return Result(
             results,
@@ -3576,7 +3581,7 @@ class Client:
             if community_data:
                 result = community_data[0].get('result', {})
                 if result:
-                    results.append(Community(self, result))
+                    results.append(Community.from_data(self, result))
 
         return Result(
             results,
@@ -3589,6 +3594,7 @@ class Client:
     async def get_community_hashtags(
         self,
         community_id: str,
+        hashtags: list[str] | None = None,
         count: int = 20,
         cursor: str | None = None,
     ) -> Result[Tweet]:
@@ -3599,6 +3605,8 @@ class Client:
         ----------
         community_id : :class:`str`
             The ID of the community.
+        hashtags : list[:class:`str`], default=None
+            List of hashtags to filter by. If None, returns all.
         count : :class:`int`, default=20
             The number of tweets to retrieve.
         cursor : :class:`str`, default=None
@@ -3616,7 +3624,7 @@ class Client:
         ...     print(tweet)
         <Tweet id="...">
         """
-        response, _ = await self.gql.community_hashtags_timeline(community_id, count, cursor)
+        response, _ = await self.gql.community_hashtags_timeline(community_id, hashtags or [], count, cursor)
         instructions_ = find_dict(response, 'instructions', True)
         if not instructions_:
             return Result([])
@@ -3636,9 +3644,9 @@ class Client:
 
         return Result(
             results,
-            partial(self.get_community_hashtags, community_id, count, next_cursor) if next_cursor else None,
+            partial(self.get_community_hashtags, community_id, hashtags, count, next_cursor) if next_cursor else None,
             next_cursor,
-            partial(self.get_community_hashtags, community_id, count, previous_cursor) if previous_cursor else None,
+            partial(self.get_community_hashtags, community_id, hashtags, count, previous_cursor) if previous_cursor else None,
             previous_cursor,
         )
 
@@ -3723,7 +3731,7 @@ class Client:
                     continue
                 if user_info[0].get("__typename") == "UserUnavailable":
                     continue
-                results.append(User(self, user_info[0]))
+                results.append(User.from_data(self, user_info[0]))
 
         return Result(
             results,
@@ -3740,7 +3748,7 @@ class Client:
         users = response["users"]
         results = []
         for user in users:
-            results.append(User(self, build_user_data(user)))
+            results.append(User.from_data(self, build_user_data(user)))
 
         next_cursor, previous_cursor = extract_cursors_from_response(response)
 
@@ -4055,7 +4063,7 @@ class Client:
 
         message_data = find_dict(response, "message_data", find_one=True)[0]
         users = list(response["users"].values())
-        return Message(
+        return Message.from_data(
             self,
             message_data,
             users[0]["id_str"],
@@ -4201,7 +4209,7 @@ class Client:
         for item in items:
             message_info = item["message"]["message_data"]
             messages.append(
-                Message(
+                Message.from_data(
                     self,
                     message_info,
                     message_info["sender_id"],
@@ -4262,7 +4270,7 @@ class Client:
 
         message_data = find_dict(response, "message_data", find_one=True)[0]
         users = list(response["users"].values())
-        return GroupMessage(self, message_data, users[0]["id_str"], group_id)
+        return GroupMessage.from_data(self, message_data, users[0]["id_str"], group_id)
 
     async def get_group_dm_history(
         self, group_id: str, max_id: str | None = None
@@ -4313,7 +4321,7 @@ class Client:
                 continue
             message_info = item["message"]["message_data"]
             messages.append(
-                GroupMessage(self, message_info, message_info["sender_id"], group_id)
+                GroupMessage.from_data(self, message_info, message_info["sender_id"], group_id)
             )
 
         return Result(
@@ -4337,7 +4345,7 @@ class Client:
             An object representing the retrieved group.
         """
         response = await self._get_dm_history(group_id)
-        return Group(self, group_id, response)
+        return Group.from_data(self, group_id, response)
 
     async def add_members_to_group(
         self, group_id: str, user_ids: list[str]
@@ -4415,7 +4423,7 @@ class Client:
         """
         response, _ = await self.gql.create_list(name, description, is_private)
         list_info = find_dict(response, "list", find_one=True)[0]
-        return List(self, list_info)
+        return List.from_data(self, list_info)
 
     async def edit_list_banner(self, list_id: str, media_id: str) -> Response:
         """
@@ -4493,7 +4501,7 @@ class Client:
         """
         response, _ = await self.gql.update_list(list_id, name, description, is_private)
         list_info = find_dict(response, "list", find_one=True)[0]
-        return List(self, list_info)
+        return List.from_data(self, list_info)
 
     async def add_list_member(self, list_id: str, user_id: str) -> List:
         """
@@ -4516,7 +4524,7 @@ class Client:
         >>> await client.add_list_member('list id', 'user id')
         """
         response, _ = await self.gql.list_add_member(list_id, user_id)
-        return List(self, response["data"]["list"])
+        return List.from_data(self, response["data"]["list"])
 
     async def remove_list_member(self, list_id: str, user_id: str) -> List:
         """
@@ -4541,7 +4549,7 @@ class Client:
         response, _ = await self.gql.list_remove_member(list_id, user_id)
         if "errors" in response:
             raise TwitterException(response["errors"][0]["message"])
-        return List(self, response["data"]["list"])
+        return List.from_data(self, response["data"]["list"])
 
     async def get_lists(self, count: int = 100, cursor: str = None) -> Result[List]:
         """
@@ -4578,7 +4586,7 @@ class Client:
 
         lists = []
         for list in items[1]:
-            lists.append(List(self, list["item"]["itemContent"]["list"]))
+            lists.append(List.from_data(self, list["item"]["itemContent"]["list"]))
 
         next_cursor, previous_cursor = extract_cursors(entries)
 
@@ -4608,7 +4616,7 @@ class Client:
         list_data_ = find_dict(response, "list", find_one=True)
         if not list_data_:
             raise ValueError(f"Invalid list id: {list_id}")
-        return List(self, list_data_[0])
+        return List.from_data(self, list_data_[0])
 
     async def get_list_tweets(
         self, list_id: str, count: int = 20, cursor: str | None = None
@@ -4689,7 +4697,7 @@ class Client:
             entry_id = item.get("entryId", "")
             if entry_id.startswith("user"):
                 user_info = find_dict(item, "result", find_one=True)[0]
-                results.append(User(self, user_info))
+                results.append(User.from_data(self, user_info))
 
         return Result(
             results,
@@ -4802,7 +4810,7 @@ class Client:
 
         lists = []
         for item in items:
-            lists.append(List(self, item["item"]["itemContent"]["list"]))
+            lists.append(List.from_data(self, item["item"]["itemContent"]["list"]))
 
         return Result(
             lists,
@@ -4859,7 +4867,7 @@ class Client:
 
         global_objects = response["globalObjects"]
         users = {
-            id: User(self, build_user_data(data))
+            id: User.from_data(self, build_user_data(data))
             for id, data in global_objects.get("users", {}).items()
         }
         tweets = {}
@@ -4867,7 +4875,7 @@ class Client:
         for id, tweet_data in global_objects.get("tweets", {}).items():
             user_id = tweet_data["user_id_str"]
             user = users[user_id]
-            tweet = Tweet(self, build_tweet_data(tweet_data), user)
+            tweet = Tweet.from_data(self, build_tweet_data(tweet_data), user)
             tweets[id] = tweet
 
         notifications = []
@@ -4888,7 +4896,7 @@ class Client:
             else:
                 user = None
 
-            notifications.append(Notification(self, notification, tweet, user))
+            notifications.append(Notification.from_data(self, notification, tweet, user))
 
         entries = find_dict(response, "entries", find_one=True)[0]
         next_cursor, previous_cursor = extract_cursors(entries)
@@ -4934,7 +4942,7 @@ class Client:
         items = find_dict(response, "items_results", find_one=True)[0]
         communities = []
         for item in items:
-            communities.append(Community(self, item["result"]))
+            communities.append(Community.from_data(self, item["result"]))
         next_cursor_ = find_dict(response, "next_cursor", find_one=True)
         next_cursor = next_cursor_[0] if next_cursor_ else None
         if next_cursor is None:
@@ -4969,7 +4977,7 @@ class Client:
         community_data = results[0]
         if not isinstance(community_data, dict) or "rest_id" not in community_data:
             raise CommunityNotFound(f"Community not found or unavailable: {community_id}")
-        return Community(self, community_data)
+        return Community.from_data(self, community_data)
 
     async def get_community_tweets(
         self,
@@ -5097,8 +5105,8 @@ class Client:
             user_data = tweet_data["core"]["user_results"]["result"]
             community_data = tweet_data["community_results"]["result"]
             community_data["rest_id"] = community_data["id_str"]
-            community = Community(self, community_data)
-            tweet = Tweet(self, tweet_data, User(self, user_data))
+            community = Community.from_data(self, community_data)
+            tweet = Tweet.from_data(self, tweet_data, User.from_data(self, user_data))
             tweet.community = community
             tweets.append(tweet)
 
@@ -5127,7 +5135,7 @@ class Client:
         response, _ = await self.gql.join_community(community_id)
         community_data = response["data"]["community_join"]
         community_data["rest_id"] = community_data["id_str"]
-        return Community(self, community_data)
+        return Community.from_data(self, community_data)
 
     async def leave_community(self, community_id: str) -> Community:
         """
@@ -5146,7 +5154,7 @@ class Client:
         response, _ = await self.gql.leave_community(community_id)
         community_data = response["data"]["community_leave"]
         community_data["rest_id"] = community_data["id_str"]
-        return Community(self, community_data)
+        return Community.from_data(self, community_data)
 
     async def request_to_join_community(
         self, community_id: str, answer: str | None = None
@@ -5169,7 +5177,7 @@ class Client:
         response, _ = await self.gql.request_to_join_community(community_id, answer)
         community_data = find_dict(response, "result", find_one=True)[0]
         community_data["rest_id"] = community_data["id_str"]
-        return Community(self, community_data)
+        return Community.from_data(self, community_data)
 
     async def _get_community_users(
         self, f, community_id: str, count: int, cursor: str | None
@@ -5186,7 +5194,7 @@ class Client:
                 continue
             if item["result"].get("__typename") != "User":
                 continue
-            users.append(CommunityMember(self, item["result"]))
+            users.append(CommunityMember.from_data(self, item["result"]))
 
         next_cursor_ = find_dict(response, "next_cursor", find_one=True)
         next_cursor = next_cursor_[0] if next_cursor_ else None

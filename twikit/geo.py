@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import warnings
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .errors import TwitterException
@@ -9,6 +10,7 @@ if TYPE_CHECKING:
     from .client.client import Client
 
 
+@dataclass(eq=False, repr=False)
 class Place:
     """
     Attributes
@@ -36,24 +38,38 @@ class Place:
     contained_within : list[:class:`.Place`]
         A list of places that contain this place.
     """
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    name: str = ''
+    full_name: str = ''
+    country: str = ''
+    country_code: str = ''
+    url: str = ''
+    place_type: str = ''
+    attributes: dict | None = None
+    bounding_box: dict = field(default_factory=dict)
+    centroid: list[float] | None = None
+    contained_within: list[Place] = field(default_factory=list)
 
-    def __init__(self, client: Client, data: dict) -> None:
-        self._client = client
-
-        self.id: str = data['id']
-        self.name: str = data['name']
-        self.full_name: str = data['full_name']
-        self.country: str = data['country']
-        self.country_code: str = data['country_code']
-        self.url: str = data['url']
-        self.place_type: str = data['place_type']
-        self.attributes: dict | None = data.get('attributes')
-        self.bounding_box: dict = data['bounding_box']
-        self.centroid: list[float] | None = data.get('centroid')
-
-        self.contained_within: list[Place] = [
-            Place(client, place) for place in data.get('contained_within', [])
-        ]
+    @classmethod
+    def from_data(cls, client: Client, data: dict) -> Place:
+        return cls(
+            _client=client,
+            id=data['id'],
+            name=data['name'],
+            full_name=data['full_name'],
+            country=data['country'],
+            country_code=data['country_code'],
+            url=data['url'],
+            place_type=data['place_type'],
+            attributes=data.get('attributes'),
+            bounding_box=data['bounding_box'],
+            centroid=data.get('centroid'),
+            contained_within=[
+                Place.from_data(client, place)
+                for place in data.get('contained_within', [])
+            ],
+        )
 
     async def update(self) -> None:
         new = self._client.get_place(self.id)
@@ -62,11 +78,8 @@ class Place:
     def __repr__(self) -> str:
         return f'<Place id="{self.id}" name="{self.name}">'
 
-    def __eq__(self, __value: object) -> bool:
-        return isinstance(__value, Place) and self.id == __value.id
-
-    def __ne__(self, __value: object) -> bool:
-        return not self == __value
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Place) and self.id == other.id
 
 
 def _places_from_response(client: Client, response: dict) -> list[Place]:
@@ -79,4 +92,4 @@ def _places_from_response(client: Client, response: dict) -> list[Place]:
             raise TwitterException(e['message'])
 
     places = response['result']['places'] if 'result' in response else []
-    return [Place(client, place) for place in places]
+    return [Place.from_data(client, place) for place in places]

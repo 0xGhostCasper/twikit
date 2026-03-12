@@ -257,7 +257,7 @@ class GuestClient:
         user_data = user_result['result']
         if user_data.get('__typename') == 'UserUnavailable':
             raise UserUnavailable(user_data.get('message'))
-        return AccountAbout(user_data)
+        return AccountAbout.from_data(user_data)
 
     async def get_user_by_id(self, user_id: str) -> User:
         """

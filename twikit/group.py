@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .message import Message
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from .utils import Result
 
 
+@dataclass(eq=False, repr=False)
 class Group:
     """
     Represents a group.
@@ -23,93 +25,45 @@ class Group:
         The ID of the group.
     name : :class:`str` | None
         The name of the group.
-    members : list[:class:`str`]
-        Member IDs
+    members : list[:class:`User`]
+        Members of the group.
     """
-    def __init__(self, client: Client, group_id: str, data: dict) -> None:
-        self._client = client
-        self.id = group_id
+    _client: Client = field(repr=False, compare=False)
+    id: str = ''
+    name: str | None = None
+    members: list[User] = field(default_factory=list)
 
+    @classmethod
+    def from_data(cls, client: Client, group_id: str, data: dict) -> Group:
         conversation_timeline = data["conversation_timeline"]
-        self.name: str | None = (
+        name = (
             conversation_timeline["conversations"][group_id]["name"]
             if len(conversation_timeline["conversations"].keys()) > 0
             else None
         )
-
-        members = conversation_timeline["users"].values()
-        self.members: list[User] = [User(client, build_user_data(i)) for i in members]
+        members_data = conversation_timeline["users"].values()
+        members = [
+            User.from_data(client, build_user_data(i)) for i in members_data
+        ]
+        return cls(
+            _client=client,
+            id=group_id,
+            name=name,
+            members=members,
+        )
 
     async def get_history(
         self, max_id: str | None = None
     ) -> Result[GroupMessage]:
-        """
-        Retrieves the DM conversation history in the group.
-
-        Parameters
-        ----------
-        max_id : :class:`str`, default=None
-            If specified, retrieves messages older than the specified max_id.
-
-        Returns
-        -------
-        Result[:class:`GroupMessage`]
-            A Result object containing a list of GroupMessage objects
-            representing the DM conversation history.
-
-        Examples
-        --------
-        >>> messages = await group.get_history()
-        >>> for message in messages:
-        >>>     print(message)
-        <GroupMessage id="...">
-        <GroupMessage id="...">
-        ...
-        ...
-
-        >>> more_messages = await messages.next()  # Retrieve more messages
-        >>> for message in more_messages:
-        >>>     print(message)
-        <GroupMessage id="...">
-        <GroupMessage id="...">
-        ...
-        ...
-        """
+        """Retrieves the DM conversation history in the group."""
         return await self._client.get_group_dm_history(self.id, max_id)
 
     async def add_members(self, user_ids: list[str]) -> Response:
-        """Adds members to the group.
-
-        Parameters
-        ----------
-        user_ids : list[:class:`str`]
-            List of IDs of users to be added.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-
-        Examples
-        --------
-        >>> members = ['...']
-        >>> await group.add_members(members)
-        """
+        """Adds members to the group."""
         return await self._client.add_members_to_group(self.id, user_ids)
 
     async def change_name(self, name: str) -> Response:
-        """Changes group name
-
-        Parameters
-        ----------
-        name : :class:`str`
-            New name.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-        """
+        """Changes group name."""
         return await self._client.change_group_name(self.id, name)
 
     async def send_message(
@@ -118,34 +72,7 @@ class Group:
         media_id: str | None = None,
         reply_to: str | None = None
     ) -> GroupMessage:
-        """
-        Sends a message to the group.
-
-        Parameters
-        ----------
-        text : :class:`str`
-            The text content of the direct message.
-        media_id : :class:`str`, default=None
-            The media ID associated with any media content
-            to be included in the message.
-            Media ID can be received by using the :func:`.upload_media` method.
-        reply_to : :class:`str`, default=None
-            Message ID to reply to.
-
-        Returns
-        -------
-        :class:`GroupMessage`
-            `Message` object containing information about the message sent.
-
-        Examples
-        --------
-        >>> # send DM with media
-        >>> group_id = '000000000'
-        >>> media_id = await client.upload_media('image.png')
-        >>> message = await group.send_message('text', media_id)
-        >>> print(message)
-        <GroupMessage id='...'>
-        """
+        """Sends a message to the group."""
         return await self._client.send_dm_to_group(
             self.id, text, media_id, reply_to
         )
@@ -158,99 +85,53 @@ class Group:
         return f'<Group id="{self.id}">'
 
 
+@dataclass(eq=False, repr=False)
 class GroupMessage(Message):
     """
-    Represents a direct message.
+    Represents a group direct message.
 
     Attributes
     ----------
-    id : :class:`str`
-        The ID of the message.
-    time : :class:`str`
-        The timestamp of the message.
-    text : :class:`str`
-        The text content of the message.
-    attachment : :class:`str`
-        The media URL associated with any attachment in the message.
     group_id : :class:`str`
         The ID of the group.
     """
-    def __init__(
-        self,
-        client: Client,
-        data: dict,
-        sender_id: str,
-        group_id: str
-    ) -> None:
-        super().__init__(client, data, sender_id, None)
-        self.group_id = group_id
+    group_id: str = ''
+
+    @classmethod
+    def from_data(
+        cls, client: Client, data: dict, sender_id: str, group_id: str
+    ) -> GroupMessage:
+        return cls(
+            _client=client,
+            id=data['id'],
+            time=data['time'],
+            text=data['text'],
+            attachment=data.get('attachment'),
+            sender_id=sender_id,
+            recipient_id=None,
+            group_id=group_id,
+        )
 
     async def group(self) -> Group:
-        """
-        Gets the group to which the message was sent.
-        """
+        """Gets the group to which the message was sent."""
         return await self._client.get_group(self.group_id)
 
     async def reply(
         self, text: str, media_id: str | None = None
     ) -> GroupMessage:
-        """Replies to the message.
-
-        Parameters
-        ----------
-        text : :class:`str`
-            The text content of the direct message.
-        media_id : :class:`str`, default=None
-            The media ID associated with any media content
-            to be included in the message.
-            Media ID can be received by using the :func:`.upload_media` method.
-
-        Returns
-        -------
-        :class:`Message`
-            `GroupMessage` object containing information about
-            the message sent.
-
-        See Also
-        --------
-        Client.send_dm_to_group
-        """
+        """Replies to the message."""
         return await self._client.send_dm_to_group(
             self.group_id, text, media_id, self.id
         )
 
     async def add_reaction(self, emoji: str) -> Response:
-        """
-        Adds a reaction to the message.
-
-        Parameters
-        ----------
-        emoji : :class:`str`
-            The emoji to be added as a reaction.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-        """
+        """Adds a reaction to the message."""
         return await self._client.add_reaction_to_message(
             self.id, self.group_id, emoji
         )
 
     async def remove_reaction(self, emoji: str) -> Response:
-        """
-        Removes a reaction from the message.
-
-        Parameters
-        ----------
-        emoji : :class:`str`
-            The emoji to be removed.
-
-        Returns
-        -------
-        :class:`httpx.Response`
-            Response returned from twitter api.
-        """
+        """Removes a reaction from the message."""
         return await self._client.remove_reaction_from_message(
             self.id, self.group_id, emoji
         )

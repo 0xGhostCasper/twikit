@@ -730,7 +730,7 @@ class GQLClient:
 
     async def users_by_screen_names(self, screen_names):
         variables = {
-            'screenNames': screen_names
+            'screen_names': screen_names
         }
         return await self.gql_get(Endpoint.USERS_BY_SCREEN_NAMES, variables, USER_FEATURES)
 
@@ -770,13 +770,15 @@ class GQLClient:
             variables['cursor'] = cursor
         return await self.gql_get(Endpoint.AUDIO_SPACE_SEARCH, variables)
 
-    async def trend_history(self):
-        variables = {}
+    async def trend_history(self, trend_id):
+        variables = {
+            'trendId': trend_id
+        }
         return await self.gql_get(Endpoint.TREND_HISTORY, variables)
 
-    async def trend_relevant_users(self, trend_name):
+    async def trend_relevant_users(self, trend_id):
         variables = {
-            'trendName': trend_name
+            'trendId': trend_id
         }
         return await self.gql_get(Endpoint.TREND_RELEVANT_USERS, variables, USER_FEATURES)
 
@@ -847,7 +849,7 @@ class GQLClient:
     async def list_search_timeline(self, list_id, query, count, cursor):
         variables = {
             'listId': list_id,
-            'query': query,
+            'rawQuery': query,
             'count': count
         }
         if cursor is not None:
@@ -862,9 +864,10 @@ class GQLClient:
             variables['cursor'] = cursor
         return await self.gql_get(Endpoint.COMMUNITIES_EXPLORE_TIMELINE, variables, TIMELINE_FEATURES)
 
-    async def community_hashtags_timeline(self, community_id, count, cursor):
+    async def community_hashtags_timeline(self, community_id, hashtags, count, cursor):
         variables = {
             'communityId': community_id,
+            'hashtags': hashtags,
             'count': count,
             'withCommunity': True
         }
