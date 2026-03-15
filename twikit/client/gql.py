@@ -110,8 +110,9 @@ class Endpoint:
     MODERATORS_SLICE_TIMELINE_QUERY = url('9KI_r8e-tgp3--N5SZYVjg/moderatorsSliceTimeline_Query')
     COMMUNITY_TWEET_SEARCH_MODULE_QUERY = url('5341rmzzvdjqfmPKfoHUBw/CommunityTweetSearchModuleQuery')
     TWEET_RESULTS_BY_REST_IDS = url('M441-7OPnT7o_TzVwteU3Q/TweetResultsByRestIds')
-    AUDIO_SPACE_BY_ID = url('84Nq0w42k2OT9eD69mUUhg/AudioSpaceById')
+    AUDIO_SPACE_BY_ID = url('eYb6TE8U-6O89gA4l8voEA/AudioSpaceById')
     AUDIO_SPACE_SEARCH = url('NTq79TuSz6fHj8lQaferJw/AudioSpaceSearch')
+    BROWSE_SPACE_TOPICS = url('TYpVV9QioZfViHqEqRZxJA/BrowseSpaceTopics')
     TREND_HISTORY = url('LftLG10fy08uXU-gVzBuog/TrendHistory')
     TREND_RELEVANT_USERS = url('ciyWJk807WubnL17fdpYOw/TrendRelevantUsers')
     TOPIC_BY_REST_ID = url('4OUZZOonV2h60I0wdlQb_w/TopicByRestId')
@@ -769,6 +770,9 @@ class GQLClient:
         if cursor is not None:
             variables['cursor'] = cursor
         return await self.gql_get(Endpoint.AUDIO_SPACE_SEARCH, variables)
+
+    async def browse_space_topics(self):
+        return await self.gql_get(Endpoint.BROWSE_SPACE_TOPICS, {})
 
     async def trend_history(self, trend_id):
         variables = {

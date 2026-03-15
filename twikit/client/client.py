@@ -3152,6 +3152,26 @@ class Client:
             next_cursor,
         )
 
+    async def browse_space_topics(self) -> list[dict]:
+        """
+        Retrieves available Space topics for discovery.
+
+        Returns
+        -------
+        list[dict]
+            A list of topic dicts from the BrowseSpaceTopics endpoint.
+
+        Examples
+        --------
+        >>> topics = await client.browse_space_topics()
+        >>> for topic in topics:
+        ...     print(topic)
+        """
+        response, _ = await self.gql.browse_space_topics()
+        data = response.get('data', {})
+        topics = data.get('browse_space_topics', {})
+        return topics.get('topics', []) if isinstance(topics, dict) else []
+
     async def get_topic(self, topic_id: str) -> Topic:
         """
         Retrieves a Twitter Topic by its ID.

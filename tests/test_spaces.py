@@ -59,3 +59,23 @@ class TestSearchAudioSpaces:
         except NotFound:
             pytest.skip("AudioSpaceSearch endpoint returns 404 (may be deprecated)")
         assert isinstance(spaces, Result)
+
+
+class TestBrowseSpaceTopics:
+    @pytest.mark.asyncio
+    async def test_returns_list(self, client: Client):
+        try:
+            topics = await client.browse_space_topics()
+        except NotFound:
+            pytest.skip("BrowseSpaceTopics endpoint returns 404 (may be deprecated)")
+        assert isinstance(topics, list)
+
+    @pytest.mark.asyncio
+    async def test_raw_response_is_valid(self, client: Client):
+        """Verify the endpoint returns a well-formed response (data may be empty)."""
+        try:
+            response, _ = await client.gql.browse_space_topics()
+        except NotFound:
+            pytest.skip("BrowseSpaceTopics endpoint returns 404 (may be deprecated)")
+        assert 'data' in response
+        assert 'errors' not in response
