@@ -38,9 +38,14 @@ class ClientTransaction:
         home_page_response = await handle_x_migration(session, headers)
 
         self.home_page_response = self.validate_response(home_page_response)
-        self.DEFAULT_ROW_INDEX, self.DEFAULT_KEY_BYTES_INDICES = await self.get_indices(
-            self.home_page_response, session, headers
-        )
+        # Skip the expensive JS file fetch if indices were pre-populated
+        # (e.g. by a shared bootstrap). The indices are session-independent
+        # but the key/animation_key are derived from the session-specific
+        # home page and must always be computed fresh.
+        if self.DEFAULT_ROW_INDEX is None or self.DEFAULT_KEY_BYTES_INDICES is None:
+            self.DEFAULT_ROW_INDEX, self.DEFAULT_KEY_BYTES_INDICES = await self.get_indices(
+                self.home_page_response, session, headers
+            )
         self.key = self.get_key(response=self.home_page_response)
         self.key_bytes = self.get_key_bytes(key=self.key)
         self.animation_key = self.get_animation_key(
