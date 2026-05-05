@@ -803,8 +803,12 @@ class GQLClient:
         return await self.gql_get(Endpoint.TOPIC_LANDING_PAGE, variables, TIMELINE_FEATURES)
 
     async def article_result_by_rest_id(self, article_id):
+        # The endpoint is `ArticleEntityResultByRestId` and X's GraphQL
+        # validator rejects the query when `articleEntityId` is missing
+        # ("must be defined"). Sending `articleId` triggers a 422 with
+        # path=["variable","articleEntityId"]. Match the variable name.
         variables = {
-            'articleId': article_id
+            'articleEntityId': article_id
         }
         return await self.gql_get(Endpoint.ARTICLE_RESULT_BY_REST_ID, variables, ARTICLE_FEATURES)
 
