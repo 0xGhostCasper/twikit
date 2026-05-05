@@ -117,7 +117,12 @@ class Endpoint:
     TREND_RELEVANT_USERS = url('ciyWJk807WubnL17fdpYOw/TrendRelevantUsers')
     TOPIC_BY_REST_ID = url('4OUZZOonV2h60I0wdlQb_w/TopicByRestId')
     TOPIC_LANDING_PAGE = url('S7VFVaSgxtfDtkRh0B1PfA/TopicLandingPage')
-    ARTICLE_RESULT_BY_REST_ID = url('i1GUp3zg_bzMUQdEuT3XPg/ArticleEntityResultByRestId')
+    # Query ID rotated by X — the old `i1GUp3zg_bzMUQdEuT3XPg` is now
+    # sunset and returns {"article_result_by_rest_id": {"result": {}}}
+    # for every request, even when variables and features are correct.
+    # `8-OHhj8-KCAHUP8XjPaAYQ` is the current ID per
+    # fa0311/TwitterInternalAPIDocument (auto-scraped from x.com web).
+    ARTICLE_RESULT_BY_REST_ID = url('8-OHhj8-KCAHUP8XjPaAYQ/ArticleEntityResultByRestId')
     BROADCAST_QUERY = url('gIcysSvC6v8JF9-OlCRXUA/BroadcastQuery')
     BIRDWATCH_FETCH_NOTES = url('C7r8eSyiH-iziuuCqQrzMA/BirdwatchFetchNotes')
     BIRDWATCH_FETCH_SOURCE_LINK_SLICE = url('qqJ7slrA6HP_mUwYLykuVg/BirdwatchFetchSourceLinkSlice')
