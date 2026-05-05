@@ -49,7 +49,7 @@ class Endpoint:
     USERS_BY_SCREEN_NAMES = url('Ats5GnHiQxT-Nnzw09raMw/UsersByScreenNames')
     ABOUT_ACCOUNT = url('zs_jFPFT78rBpXv9Z3U2YQ/AboutAccountQuery')
     TWEET_DETAIL = url('1eAGnXrtvTBUePpQfTXZzA/TweetDetail')
-    TWEET_RESULT_BY_REST_ID = url('tcA4FFMIjGSDv48Cu_FS5Q/TweetResultByRestId')
+    TWEET_RESULT_BY_REST_ID = url('2pq8P2wfwUBo2hqukWqdIA/TweetResultByRestId')
     TWEET_EDIT_HISTORY = url('Ziq1ud3_9eS5sGVPr-0C2g/TweetEditHistory')
     FETCH_SCHEDULED_TWEETS = url('cmwoO7AWw5zCpd8TaPFQHg/FetchScheduledTweets')
     DELETE_SCHEDULED_TWEET = url('CTOVqej0JBXAZSwkp1US0g/DeleteScheduledTweet')
@@ -902,17 +902,26 @@ class GQLClient:
     ####################
 
     async def tweet_result_by_rest_id(self, tweet_id):
+        # Variables and fieldToggles match what x.com web client sends
+        # for /i/article/<id> page loads. The article body is delivered
+        # via this endpoint (under data.tweetResult.result.article)
+        # because ArticleEntityResultByRestId now returns an empty
+        # result envelope. The article fieldToggles must all be set
+        # for the article payload to be populated.
         variables = {
             'tweetId': tweet_id,
-            'withCommunity': False,
-            'includePromotedContent': False,
-            'withVoice': False
+            'includePromotedContent': True,
+            'withBirdwatchNotes': True,
+            'withVoice': True,
+            'withCommunity': True,
         }
         params = {
             'fieldToggles': {
                 'withArticleRichContentState': True,
                 'withArticlePlainText': False,
-                'withGrokAnalyze': False
+                'withArticleSummaryText': True,
+                'withArticleVoiceOver': True,
+                'withGrokAnalyze': False,
             }
         }
         return await self.gql_get(
