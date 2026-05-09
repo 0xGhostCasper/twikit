@@ -86,8 +86,10 @@ class GuestClient:
             )
             warnings.warn(message)
 
-        # Initialize with an isolated cookie jar to prevent cookie conflicts
-        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), http2=True, **kwargs)
+        # Initialize with an isolated cookie jar to prevent cookie conflicts.
+        # ``http2=False`` mirrors the authenticated client — see comment in
+        # ``twikit/client/client.py``.
+        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), http2=False, **kwargs)
         self.language = language
         self.proxy = proxy
 

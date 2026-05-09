@@ -111,8 +111,18 @@ class Client:
             )
             warnings.warn(message)
 
-        # Initialize with an isolated cookie jar to prevent cookie conflicts
-        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), http2=True, **kwargs)
+        # Initialize with an isolated cookie jar to prevent cookie conflicts.
+        #
+        # ``http2=False`` is intentional: when scraping at high concurrency
+        # through a CONNECT proxy, httpx with HTTP/2 opens speculative
+        # tunnels per concurrent task, then closes them un-used as
+        # multiplexed streams settle on existing connections. Upstream
+        # 3proxy logs this as ``00021`` (client-closed-early) on ~67% of
+        # tunnels in production. ALPN-negotiated h2 through CONNECT also
+        # exposes a Cloudflare bot-detection RST path that surfaces as
+        # ``[SSL: RECORD_LAYER_FAILURE]`` for ~10% of requests; HTTP/1.1
+        # with keep-alive sidesteps both.
+        self.http = AsyncClient(proxy=proxy, cookies=Cookies(), http2=False, **kwargs)
         self.language = language
         self.proxy = proxy
         self.captcha_solver = captcha_solver
