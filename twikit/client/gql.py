@@ -37,7 +37,7 @@ class Endpoint:
     def url(path):
         return f'https://{DOMAIN}/i/api/graphql/{path}'
 
-    SEARCH_TIMELINE = url('OFvapAUD5xrCWn9xcD0A6A/SearchTimeline')
+    SEARCH_TIMELINE = url('AwDeXt15G08TTkW198-eUA/SearchTimeline')
     SIMILAR_POSTS = url('pJaa5NFs5SrwntuB739Ghg/SimilarPosts')
     CREATE_NOTE_TWEET = url('4e-YHiuiNDaITMxa29cerw/CreateNoteTweet')
     CREATE_TWEET = url('RXKQMYyEqEjGgWpcSP6LBw/CreateTweet')
@@ -78,7 +78,7 @@ class Endpoint:
     EDIT_BOOKMARK_FOLDER = url('a6kPp1cS1Dgbsjhapz1PNw/EditBookmarkFolder')
     DELETE_BOOKMARK_FOLDER = url('2UTTsO-6zs93XqlEUZPsSg/DeleteBookmarkFolder')
     CREATE_BOOKMARK_FOLDER = url('6Xxqpq8TM_CREYiuof_h5w/createBookmarkFolder')
-    FOLLOWERS = url('8sIMO3RbSCdvk2QzxcPpIg/Followers')
+    FOLLOWERS = url('EIcD9sh3tSzxPgvVCU3ebw/Followers')
     BLUE_VERIFIED_FOLLOWERS = url('ZH16zF8R8YAJAAfIGbef9A/BlueVerifiedFollowers')
     FOLLOWERS_YOU_KNOW = url('fBi9FJP1haBdGoZuVfZVzQ/FollowersYouKnow')
     FOLLOWING = url('lEJDj0bTio9-s0hSukCD9Q/Following')
