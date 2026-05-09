@@ -16,6 +16,7 @@ from ..constants import (
     JOIN_COMMUNITY_FEATURES,
     LIST_FEATURES,
     NOTE_TWEET_FEATURES,
+    SEARCH_TIMELINE_FEATURES,
     SIMILAR_POSTS_FEATURES,
     TIMELINE_FEATURES,
     TWEET_RESULT_BY_REST_ID_FEATURES,
@@ -37,7 +38,10 @@ class Endpoint:
     def url(path):
         return f'https://{DOMAIN}/i/api/graphql/{path}'
 
-    SEARCH_TIMELINE = url('AwDeXt15G08TTkW198-eUA/SearchTimeline')
+    # Query ID rotated by X — the previous `AwDeXt15G08TTkW198-eUA` returns
+    # 404 / empty timelines for almost every search request. The canonical ID
+    # per fa0311/TwitterInternalAPIDocument is `BqWLX1Tjvgh6eSZWEMH_kw`.
+    SEARCH_TIMELINE = url('BqWLX1Tjvgh6eSZWEMH_kw/SearchTimeline')
     SIMILAR_POSTS = url('pJaa5NFs5SrwntuB739Ghg/SimilarPosts')
     CREATE_NOTE_TWEET = url('4e-YHiuiNDaITMxa29cerw/CreateNoteTweet')
     CREATE_TWEET = url('RXKQMYyEqEjGgWpcSP6LBw/CreateTweet')
@@ -195,7 +199,10 @@ class GQLClient:
             'fieldToggles': {'withArticleRichContentState': False}
         }
         return await self.gql_get(
-            Endpoint.SEARCH_TIMELINE, variables, FEATURES, extra_params=params
+            Endpoint.SEARCH_TIMELINE,
+            variables,
+            SEARCH_TIMELINE_FEATURES,
+            extra_params=params,
         )
 
     async def similar_posts(self, tweet_id: str):
