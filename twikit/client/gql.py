@@ -195,14 +195,16 @@ class GQLClient:
         }
         if cursor is not None:
             variables['cursor'] = cursor
-        params = {
-            'fieldToggles': {'withArticleRichContentState': False}
-        }
-        return await self.gql_get(
+        # X started rejecting GET on SearchTimeline ~2026-05-10 — every GET
+        # returns 404 with empty body across all account states (verified
+        # against quarantined + healthy sessions alike). POST with the same
+        # payload as JSON body returns 200 with full search results.
+        # Mirrors d60/twikit#412.
+        return await self.gql_post(
             Endpoint.SEARCH_TIMELINE,
             variables,
             SEARCH_TIMELINE_FEATURES,
-            extra_params=params,
+            extra_data={'fieldToggles': {'withArticleRichContentState': False}},
         )
 
     async def similar_posts(self, tweet_id: str):
