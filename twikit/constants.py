@@ -46,7 +46,9 @@ ABOUT_ACCOUNT_FEATURES = {
 }
 
 LIST_FEATURES = {
-    'responsive_web_graphql_exclude_directive_enabled': True,
+    'profile_label_improvements_pcf_label_in_post_enabled': True,
+    'responsive_web_profile_redirect_enabled': False,
+    'rweb_tipjar_consumption_enabled': False,
     'verified_phone_label_enabled': False,
     'responsive_web_graphql_skip_user_profile_image_extensions_enabled': False,
     'responsive_web_graphql_timeline_navigation_enabled': True
