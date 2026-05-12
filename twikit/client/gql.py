@@ -15,6 +15,7 @@ from ..constants import (
     FEATURES,
     JOIN_COMMUNITY_FEATURES,
     LIST_FEATURES,
+    LIST_LATEST_FEATURES,
     NOTE_TWEET_FEATURES,
     SIMILAR_POSTS_FEATURES,
     TIMELINE_FEATURES,
@@ -87,16 +88,16 @@ class Endpoint:
     USER_DM_REACTION_MUTATION_REMOVE_MUTATION = url('bV_Nim3RYHsaJwMkTXJ6ew/useDMReactionMutationRemoveMutation')
     DM_MESSAGE_DELETE_MUTATION = url('BJ6DtxA2llfjnRoRjaiIiw/DMMessageDeleteMutation')
     ADD_PARTICIPANTS_MUTATION = url('oBwyQ0_xVbAQ8FAyG0pCRA/AddParticipantsMutation')
-    CREATE_LIST = url('QXil-VE8uEJPfUKFiO36Bg/CreateList')
+    CREATE_LIST = url('UQRa0jJ9doxGEIQRea1Y0w/CreateList')
     EDIT_LIST_BANNER = url('buH0utnb8bSZUo8RSWRI8Q/EditListBanner')
     DELETE_LIST_BANNER = url('-oOeYNihEO1SUYJrdIC0wA/DeleteListBanner')
     UPDATE_LIST = url('qE2QVWL84jqa6CmH-m-D3w/UpdateList')
-    LIST_ADD_MEMBER = url('nAi8BAjn1xQOyCH0hWZpPA/ListAddMember')
-    LIST_REMOVE_MEMBER = url('pGMiwtWRMx08r4XCYxai4Q/ListRemoveMember')
-    LIST_MANAGEMENT_PACE_TIMELINE = url('3HVC3dmZ7C-zFXkps66_8g/ListsManagementPageTimeline')
-    LIST_BY_REST_ID = url('bSE1lqLBnovM86uu4p4Iqg/ListByRestId')
-    LIST_LATEST_TWEETS_TIMELINE = url('gNXkRRRV67cSRJkmpgGPnA/ListLatestTweetsTimeline')
-    LIST_MEMBERS = url('fqecRWCF4EcSAOs5yXh7Ig/ListMembers')
+    LIST_ADD_MEMBER = url('vWPi0CTMoPFsjsL6W4IynQ/ListAddMember')
+    LIST_REMOVE_MEMBER = url('cAGvZIu7SW0YlLYynz3VYA/ListRemoveMember')
+    LIST_MANAGEMENT_PACE_TIMELINE = url('HudcGxZ51woVeGbC1KKazA/ListsManagementPageTimeline')
+    LIST_BY_REST_ID = url('t9AbdyHaJVfjL9jsODwgpQ/ListByRestId')
+    LIST_LATEST_TWEETS_TIMELINE = url('VqgCZ0jBFrSTE9A27-ToGQ/ListLatestTweetsTimeline')
+    LIST_MEMBERS = url('8sT-n-sPSytuqJlFj7ah1g/ListMembers')
     LIST_SUBSCRIBERS = url('iQIPCAepWJ4v9kgfmNiPnQ/ListSubscribers')
     SEARCH_COMMUNITY = url('daVUkhfHn7-Z8llpYVKJSw/CommunitiesSearchQuery')
     COMMUNITY_QUERY = url('lUBKrilodgg9Nikaw3cIiA/CommunityQuery')
@@ -616,13 +617,15 @@ class GQLClient:
         variables = {'listId': list_id, 'count': count}
         if cursor is not None:
             variables['cursor'] = cursor
-        return await self.gql_get(Endpoint.LIST_LATEST_TWEETS_TIMELINE, variables, FEATURES)
+        return await self.gql_get(
+            Endpoint.LIST_LATEST_TWEETS_TIMELINE, variables, LIST_LATEST_FEATURES
+        )
 
     async def _list_users(self, endpoint, list_id, count, cursor):
         variables = {'listId': list_id, 'count': count}
         if cursor is not None:
             variables['cursor'] = cursor
-        return await self.gql_get(endpoint, variables, FEATURES)
+        return await self.gql_get(endpoint, variables, LIST_LATEST_FEATURES)
 
     async def list_members(self, list_id, count, cursor):
         return await self._list_users(Endpoint.LIST_MEMBERS, list_id, count, cursor)
