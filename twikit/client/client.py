@@ -1517,7 +1517,9 @@ class Client:
         response, _ = await self.gql.users_by_rest_ids(user_ids)
         results = []
         for user_result in response.get('data', {}).get('users', []):
-            result = user_result.get('result', {})
+            if not user_result:
+                continue
+            result = user_result.get('result') or {}
             if result.get('__typename') == 'UserUnavailable':
                 continue
             if 'rest_id' in result:
@@ -1550,7 +1552,9 @@ class Client:
         response, _ = await self.gql.users_by_screen_names(screen_names)
         results = []
         for user_result in response.get('data', {}).get('users', []):
-            result = user_result.get('result', {})
+            if not user_result:
+                continue
+            result = user_result.get('result') or {}
             if result.get('__typename') == 'UserUnavailable':
                 continue
             if 'rest_id' in result:
