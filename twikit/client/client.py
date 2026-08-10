@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import io
 import json
 import os
@@ -67,6 +68,23 @@ from ..x_client_transaction.utils import handle_x_migration
 from ..x_client_transaction import ClientTransaction
 from .gql import GQLClient
 from .v11 import V11Client
+
+
+# Set while a suspension check is in flight, so the check cannot trigger itself.
+#
+# ``request`` consults ``_get_user_state`` on a 429 to tell "suspended" from
+# "rate limited". That check is itself an HTTP GET, so when it ALSO comes back
+# 429 — which is exactly what happens to a rate-limited account — it asks again,
+# and again: get -> request -> _get_user_state -> user_state -> get -> ...
+# until ``RecursionError: maximum recursion depth exceeded``. The caller then
+# sees an opaque RecursionError instead of TooManyRequests.
+#
+# A ContextVar (not an instance attribute) because one Client is shared across
+# concurrent tasks: the flag must scope to the task doing the check, not to the
+# client, or a parallel request would be mis-flagged.
+_CHECKING_USER_STATE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "twikit_checking_user_state", default=False
+)
 
 
 class Client:
@@ -223,7 +241,11 @@ class Client:
             elif status_code == 408:
                 raise RequestTimeout(message, headers=response.headers)
             elif status_code == 429:
-                if await self._get_user_state() == "suspended":
+                # A 429 raised BY the suspension check must not start another
+                # one — that is the recursion this guard exists to stop.
+                if not _CHECKING_USER_STATE.get() and (
+                    await self._get_user_state() == "suspended"
+                ):
                     raise AccountSuspended(message, headers=response.headers)
                 raise TooManyRequests(message, headers=response.headers)
             elif 500 <= status_code < 600:
@@ -5435,5 +5457,9 @@ class Client:
         return _payload_from_data(response)
 
     async def _get_user_state(self) -> Literal["normal", "bounced", "suspended"]:
-        response, _ = await self.v11.user_state()
+        token = _CHECKING_USER_STATE.set(True)
+        try:
+            response, _ = await self.v11.user_state()
+        finally:
+            _CHECKING_USER_STATE.reset(token)
         return response["userState"]
