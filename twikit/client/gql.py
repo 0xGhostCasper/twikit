@@ -25,6 +25,7 @@ from ..constants import (
     USER_HIGHLIGHTS_TWEETS_FEATURES
 )
 from ..utils import flatten_params, get_query_id
+from .gql_registry import REGISTRY
 
 if TYPE_CHECKING:
     from ..guest.client import GuestClient
@@ -149,6 +150,7 @@ class GQLClient:
         extra_params: dict | None = None,
         **kwargs
     ):
+        url, features = REGISTRY.resolve(url, features)
         params = {'variables': variables}
         if features is not None:
             params['features'] = features
@@ -167,6 +169,7 @@ class GQLClient:
         extra_data: dict | None = None,
         **kwargs
     ):
+        url, features = REGISTRY.resolve(url, features)
         data = {'variables': variables, 'queryId': get_query_id(url)}
         if features is not None:
             data['features'] = features

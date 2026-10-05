@@ -68,6 +68,7 @@ from ..utils import (
 from ..x_client_transaction.utils import handle_x_migration
 from ..x_client_transaction import ClientTransaction
 from .gql import GQLClient
+from .gql_registry import REGISTRY as GQL_REGISTRY
 from .v11 import V11Client
 
 
@@ -178,6 +179,10 @@ class Client:
             # Restore cookies using proper cookie jar
             self.http.cookies.clear()
             self.http.cookies.update(cookies_backup)
+            # The logged-in home page is exactly what the registry reads; refreshing
+            # here (in the background, at most once per interval per process)
+            # keeps queryIds/features current without any extra page load.
+            GQL_REGISTRY.maybe_refresh(str(self.client_transaction.home_page_response))
 
         if not self.client_transaction.key:
             raise TwitterException(
