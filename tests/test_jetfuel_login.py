@@ -55,9 +55,51 @@ def test_classify_action(action, expected):
     assert classify_action(action) == expected
 
 
-def test_parse_response_is_a_marked_boundary():
-    with pytest.raises(NotImplementedError):
-        parse_response(b"anything")
+def _frame(*fields: tuple[str, str]) -> bytes:
+    """Build a body in X's `<key><len><value>` framing (ASCII) for parse tests.
+
+    Mirrors the framing read off a real login capture (2026-10-05): a field is
+    its name, one length byte, then that many value bytes. Action availability is
+    conveyed by the action name appearing anywhere in the body.
+    """
+    out = bytearray()
+    for key, value in fields:
+        out += key.encode()
+        out += bytes([len(value)])
+        out += value.encode()
+    return bytes(out)
+
+
+def test_parse_response_extracts_session_token_and_next_action():
+    body = _frame(("session_token", "a" * 36), ("login_enter_password", ""))
+    r = parse_response(body)
+    assert r.session_token == "a" * 36
+    assert "login_enter_password" in r.next_actions
+    assert not r.logged_in and r.error is None
+
+
+def test_parse_response_reads_two_factor_step():
+    body = _frame(("session_token", "b" * 36)) + b"begin_two_factor_auth"
+    r = parse_response(body)
+    assert r.session_token == "b" * 36
+    assert "begin_two_factor_auth" in r.next_actions
+
+
+def test_parse_response_flags_error():
+    r = parse_response(_frame(("session_token", "c" * 36)) + b"Wrong password!")
+    assert r.error == "Wrong password!"
+
+
+def test_parse_response_logged_in_when_no_action_or_error():
+    assert parse_response(b"").logged_in is True
+
+
+def test_parse_response_decodes_text_plain_utf8_transport():
+    # bytes >127 arrive UTF-8-encoded over text/plain; the parser must recover them
+    body = _frame(("session_token", "d" * 36)) + b"\xc2\xa0" + b"start_over"
+    r = parse_response(body.decode("latin-1").encode("utf-8"))
+    assert r.session_token == "d" * 36
+    assert "start_over" in r.next_actions
 
 
 def _login(scripted: list[JetfuelResponse], totp_secret=None):

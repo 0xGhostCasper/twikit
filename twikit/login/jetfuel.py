@@ -102,20 +102,80 @@ class JetfuelResponse:
     raw: bytes = b""
 
 
-def parse_response(raw: bytes) -> JetfuelResponse:
-    """Parse a Jetfuel action response body into :class:`JetfuelResponse`.
+# Jetfuel action names the flow recognizes as "what to submit next". Derived from
+# a real login capture (2026-10-05): each response names its available follow-up
+# action(s) inline, so the flow reads the name off the response rather than
+# assuming a fixed order.
+_KNOWN_ACTIONS = (
+    "login_enter_password",
+    "begin_two_factor_auth",
+    "finish_two_factor_auth",
+    "login_enter_alternate_identifier_subtask",
+    "login_acid",
+    "begin_password_recovery",
+    "start_over",
+    "DenyLoginSubtask",
+)
+_ERROR_MARKERS = (b"DenyLoginSubtask", b"Could not log you in", b"Wrong password!",
+                  b"The password you entered", b"suspended")
 
-    BOUNDARY — not implemented until a live capture pins the framing. X returns a
-    length-delimited chunk stream here, not plain JSON; guessing its layout would
-    produce a parser that looks right and silently mis-reads session tokens and
-    challenge actions. Capture one real login (farm render with
-    ``capture_request`` + response body) and implement against those bytes, then
-    delete this raise. The flow and its tests inject a parser, so wiring the real
-    one in is a one-line change with no churn to the orchestration.
+
+def _logical_bytes(raw: bytes) -> bytes:
+    """Undo the text/plain UTF-8 transport: the SPA reads each code point as a 0-255 byte.
+
+    X serves the chunk stream as ``text/plain; charset=UTF-8``, so a byte value
+    >127 arrives UTF-8-encoded. Decoding then re-encoding latin-1 recovers the
+    original framing bytes. If ``raw`` is not valid UTF-8 it is already logical.
     """
-    raise NotImplementedError(
-        "Jetfuel response framing must be filled from a live capture; "
-        "see parse_response docstring."
+    try:
+        return raw.decode("utf-8").encode("latin-1")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        return raw
+
+
+def _extract_session_token(body: bytes) -> str | None:
+    """Pull the session_token out of the framed body.
+
+    Framing (from capture): the field name ``session_token`` is followed by one
+    length byte, then that many bytes of value (0x24 = 36 for the observed
+    tokens). Takes the first occurrence whose length byte yields a printable
+    value of that exact length.
+    """
+    marker = b"session_token"
+    start = 0
+    while (i := body.find(marker, start)) != -1:
+        start = i + len(marker)
+        if start < len(body):
+            length = body[start]
+            value = body[start + 1:start + 1 + length]
+            if len(value) == length and value.isascii() and value.decode().isprintable():
+                return value.decode()
+    return None
+
+
+def parse_response(raw: bytes) -> JetfuelResponse:
+    """Parse a Jetfuel action response into the next session token / actions / error.
+
+    The body is X's framed chunk stream (``<key><len><value>`` fields, action
+    names inline), served as text/plain. This reads exactly what the flow needs —
+    the session token that chains to the next step and which action(s) are
+    offered — rather than fully decoding the stream. Validated against a real
+    4-step login capture (begin_login -> login_enter_password ->
+    begin_two_factor_auth -> finish_two_factor_auth) on 2026-10-05.
+    """
+    body = _logical_bytes(raw)
+    token = _extract_session_token(body)
+    actions = [a for a in _KNOWN_ACTIONS if a.encode() in body]
+    error = next((m.decode() for m in _ERROR_MARKERS if m in body), None)
+    # Logged in: a completed step that offers no further action and reports no
+    # error (the terminal finish_* response, or an empty body after redirect).
+    logged_in = not actions and error is None
+    return JetfuelResponse(
+        session_token=token,
+        next_actions=actions,
+        logged_in=logged_in,
+        error=error,
+        raw=raw,
     )
 
 
