@@ -255,6 +255,22 @@ def find_entry_by_type(entries, type_filter):
     return None
 
 
+def timeline_entry_parts(entry: dict) -> Iterator[dict]:
+    """Yield the tweet-bearing parts of one timeline entry.
+
+    X groups a reply thread into a single module entry
+    (``home-conversation-*``, ``list-conversation-*``) whose tweets sit in
+    ``content.items[].item``. Handing the whole module to ``tweet_from_data``
+    keeps only the FIRST tweet it finds, so the rest of the thread was dropped.
+    """
+    content = entry.get("content", {})
+    if "items" in content:
+        for child in content["items"]:
+            yield child.get("item", child)
+    else:
+        yield content
+
+
 def extract_cursors_from_response(response: dict) -> tuple[str | None, str | None]:
     """
     Extract next and previous cursors from a response with top-level cursor fields.

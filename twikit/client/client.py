@@ -8,7 +8,7 @@ import os
 
 import warnings
 from functools import partial
-from typing import Any, AsyncGenerator, Literal
+from typing import Any, AsyncGenerator, Iterable, Literal
 from urllib.parse import urlparse
 
 import filetype
@@ -63,6 +63,7 @@ from ..utils import (
     find_dict,
     find_entry_by_type,
     httpx_transport_to_url,
+    timeline_entry_parts,
 )
 from ..x_client_transaction.utils import handle_x_migration
 from ..x_client_transaction import ClientTransaction
@@ -2424,6 +2425,20 @@ class Client:
             previous_cursor,
         )
 
+    def _tweets_from_entries(self, entries: Iterable[dict]) -> list[Tweet]:
+        """Tweets in timeline order, conversation modules unpacked, each tweet once."""
+        results: list[Tweet] = []
+        seen: set[str] = set()
+        for entry in entries:
+            for part in timeline_entry_parts(entry):
+                if "itemContent" not in part:
+                    continue
+                tweet = tweet_from_data(self, part)
+                if tweet is not None and tweet.id not in seen:
+                    seen.add(tweet.id)
+                    results.append(tweet)
+        return results
+
     async def get_latest_timeline(
         self,
         count: int = 20,
@@ -2469,14 +2484,7 @@ class Client:
         items = find_dict(response, "entries", find_one=True)[0]
         next_cursor, previous_cursor = extract_cursors(items)
 
-        results = []
-        for item in items:
-            if "itemContent" not in item["content"]:
-                continue
-            tweet = tweet_from_data(self, item)
-            if tweet is None:
-                continue
-            results.append(tweet)
+        results = self._tweets_from_entries(items)
 
         return Result(
             results,
@@ -4710,14 +4718,9 @@ class Client:
         items = items_[0]
         next_cursor, previous_cursor = extract_cursors(items)
 
-        results = []
-        for item in items:
-            if not item["entryId"].startswith("tweet"):
-                continue
-
-            tweet = tweet_from_data(self, item)
-            if tweet is not None:
-                results.append(tweet)
+        results = self._tweets_from_entries(
+            item for item in items if item["entryId"].startswith(("tweet", "list-conversation"))
+        )
 
         return Result(
             results,
