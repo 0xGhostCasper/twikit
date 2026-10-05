@@ -16,10 +16,21 @@ ON_DEMAND_FILE_REGEX = re.compile(
     r""",(\d+):["']ondemand\.s["']""",
     flags=(re.VERBOSE | re.MULTILINE),
 )
-ON_DEMAND_HASH_PATTERN = r',{}:"([0-9a-f]+)"'
+ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
 INDICES_REGEX = re.compile(
     r"""(\(\w{1,2}\[(\d{1,2})\],\s*16\))+""", flags=(re.VERBOSE | re.MULTILINE)
 )
+# Fallback when the minifier stops using 1-2 char names or 1-2 digit indices
+# (upstream d60/twikit PR #432). Only consulted if the strict form finds nothing.
+LOOSE_INDICES_REGEX = re.compile(r"\[(\d+)\],\s*16\)")
+
+
+def parse_key_byte_indices(ondemand_js: str) -> list[int]:
+    """KEY_BYTE indices from the ondemand.s bundle: strict pattern first, loose fallback."""
+    indices = [m.group(2) for m in INDICES_REGEX.finditer(ondemand_js)]
+    if not indices:
+        indices = [m.group(1) for m in LOOSE_INDICES_REGEX.finditer(ondemand_js)]
+    return [int(i) for i in indices]
 
 
 class ClientTransaction:
@@ -68,14 +79,9 @@ class ClientTransaction:
                 on_demand_file_response = await session.request(
                     method="GET", url=on_demand_file_url, headers=headers
                 )
-                key_byte_indices_match = INDICES_REGEX.finditer(
-                    str(on_demand_file_response.text)
-                )
-                for item in key_byte_indices_match:
-                    key_byte_indices.append(item.group(2))
+                key_byte_indices = parse_key_byte_indices(str(on_demand_file_response.text))
         if not key_byte_indices:
             raise Exception("Couldn't get KEY_BYTE indices")
-        key_byte_indices = list(map(int, key_byte_indices))
         return key_byte_indices[0], key_byte_indices[1:]
 
     def validate_response(self, response: bs4.BeautifulSoup):
