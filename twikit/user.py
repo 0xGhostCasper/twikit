@@ -257,14 +257,40 @@ class User:
 
     @classmethod
     def from_data(cls, client: Client, data: dict) -> User:
-        legacy = data.get('legacy', {})
-        core = data.get('core', {})
-        avatar = data.get('avatar', {})
-        location_data = data.get('location', {})
-        dm_perms = data.get('dm_permissions', {})
-        verification = data.get('verification', {})
-        privacy = data.get('privacy', {})
-        relationship = data.get('relationship_perspectives', {})
+        # X is moving user fields out of ``legacy`` into per-topic blocks
+        # (``relationship_counts``, ``tweet_counts``, ``profile_bio``, ...). Requests
+        # with the web app's current feature switches get the new shape with no
+        # ``legacy`` at all; older ones still get ``legacy``. Read either.
+        legacy = data.get('legacy') or {}
+        core = data.get('core') or {}
+        avatar = data.get('avatar') or {}
+        banner = data.get('banner') or {}
+        location_data = data.get('location') or {}
+        dm_perms = data.get('dm_permissions') or {}
+        media_perms = data.get('media_permissions') or {}
+        verification = data.get('verification') or {}
+        privacy = data.get('privacy') or {}
+        relationship = data.get('relationship_perspectives') or {}
+        relationship_counts = data.get('relationship_counts') or {}
+        tweet_counts = data.get('tweet_counts') or {}
+        action_counts = data.get('action_counts') or {}
+        profile_bio = data.get('profile_bio') or {}
+        website = data.get('website') or {}
+        pinned = data.get('pinned_items') or {}
+        translation = data.get('profile_translation') or {}
+        metadata = data.get('profile_metadata') or {}
+        notifications = data.get('notifications_settings') or {}
+
+        def pick(key: str, new_value, default):
+            """``legacy[key]`` when X still sends it, else the new-shape value."""
+            if key in legacy:
+                return legacy[key]
+            return default if new_value is None else new_value
+
+        bio_entities = (
+            legacy.get('entities') if 'description' in legacy
+            else profile_bio.get('entities')
+        ) or {}
 
         return cls(
             _client=client,
@@ -276,50 +302,34 @@ class User:
                 legacy.get('profile_image_url_https')
                 or avatar.get('image_url', '')
             ),
-            profile_banner_url=legacy.get('profile_banner_url'),
-            url=legacy.get('url'),
-            location=(
-                legacy.get('location')
-                if 'location' in legacy
-                else location_data.get('location', '')
-            ),
-            description=legacy.get('description', ''),
-            description_urls=legacy.get('entities', {}).get('description', {}).get('urls', []),
+            profile_banner_url=pick('profile_banner_url', banner.get('image_url'), None),
+            url=pick('url', website.get('url'), None),
+            location=pick('location', location_data.get('location'), ''),
+            description=pick('description', profile_bio.get('description'), ''),
+            description_urls=bio_entities.get('description', {}).get('urls', []),
             urls=legacy.get('entities', {}).get('url', {}).get('urls'),
-            pinned_tweet_ids=legacy.get('pinned_tweet_ids_str', []),
+            pinned_tweet_ids=pick('pinned_tweet_ids_str', pinned.get('tweet_ids_str'), []),
             is_blue_verified=data.get('is_blue_verified', False),
-            verified=(
-                legacy.get('verified')
-                if 'verified' in legacy
-                else verification.get('verified', False)
-            ),
-            possibly_sensitive=legacy.get('possibly_sensitive', False),
-            can_dm=(
-                legacy.get('can_dm')
-                if 'can_dm' in legacy
-                else dm_perms.get('can_dm', False)
-            ),
-            can_media_tag=legacy.get('can_media_tag', False),
+            verified=pick('verified', verification.get('verified'), False),
+            possibly_sensitive=pick('possibly_sensitive', data.get('possibly_sensitive'), False),
+            can_dm=pick('can_dm', dm_perms.get('can_dm'), False),
+            can_media_tag=pick('can_media_tag', media_perms.get('can_media_tag'), False),
             want_retweets=legacy.get('want_retweets', False),
             default_profile=legacy.get('default_profile', False),
             default_profile_image=legacy.get('default_profile_image', False),
             has_custom_timelines=legacy.get('has_custom_timelines', False),
-            followers_count=legacy.get('followers_count', 0),
+            followers_count=pick('followers_count', relationship_counts.get('followers'), 0),
             fast_followers_count=legacy.get('fast_followers_count', 0),
-            normal_followers_count=legacy.get('normal_followers_count', 0),
-            following_count=legacy.get('friends_count', 0),
-            favourites_count=legacy.get('favourites_count', 0),
+            normal_followers_count=pick('normal_followers_count', relationship_counts.get('followers'), 0),
+            following_count=pick('friends_count', relationship_counts.get('following'), 0),
+            favourites_count=pick('favourites_count', action_counts.get('favorites_count'), 0),
             listed_count=legacy.get('listed_count', 0),
-            media_count=legacy.get('media_count', 0),
-            statuses_count=legacy.get('statuses_count', 0),
+            media_count=pick('media_count', tweet_counts.get('media_tweets'), 0),
+            statuses_count=pick('statuses_count', tweet_counts.get('tweets'), 0),
             is_translator=legacy.get('is_translator', False),
-            translator_type=legacy.get('translator_type', ''),
+            translator_type=pick('translator_type', translation.get('translator_type'), ''),
             withheld_in_countries=legacy.get('withheld_in_countries', []),
-            protected=(
-                legacy.get('protected')
-                if 'protected' in legacy
-                else privacy.get('protected', False)
-            ),
+            protected=pick('protected', privacy.get('protected'), False),
             profile_image_shape=data.get('profile_image_shape', ''),
             creator_subscriptions_count=data.get('creator_subscriptions_count', 0),
             professional=data.get('professional'),
@@ -329,13 +339,11 @@ class User:
             super_follow_eligible=data.get('super_follow_eligible', False),
             super_following=data.get('super_following', False),
             super_followed_by=data.get('super_followed_by', False),
-            follow_request_sent=(
-                legacy.get('follow_request_sent')
-                if 'follow_request_sent' in legacy
-                else data.get('follow_request_sent', False)
+            follow_request_sent=pick('follow_request_sent', data.get('follow_request_sent'), False),
+            notifications=pick('notifications', notifications.get('notifications_enabled'), False),
+            profile_interstitial_type=pick(
+                'profile_interstitial_type', metadata.get('profile_interstitial_type'), ''
             ),
-            notifications=legacy.get('notifications', False),
-            profile_interstitial_type=legacy.get('profile_interstitial_type', ''),
             following=relationship.get('following', False),
             followed_by=relationship.get('followed_by', False),
             blocking=relationship.get('blocking', False),
