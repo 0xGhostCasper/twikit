@@ -261,25 +261,32 @@ class User:
         # (``relationship_counts``, ``tweet_counts``, ``profile_bio``, ...). Requests
         # with the web app's current feature switches get the new shape with no
         # ``legacy`` at all; older ones still get ``legacy``. Read either.
-        legacy = data.get('legacy') or {}
-        core = data.get('core') or {}
-        avatar = data.get('avatar') or {}
-        banner = data.get('banner') or {}
-        location_data = data.get('location') or {}
-        dm_perms = data.get('dm_permissions') or {}
-        media_perms = data.get('media_permissions') or {}
-        verification = data.get('verification') or {}
-        privacy = data.get('privacy') or {}
-        relationship = data.get('relationship_perspectives') or {}
-        relationship_counts = data.get('relationship_counts') or {}
-        tweet_counts = data.get('tweet_counts') or {}
-        action_counts = data.get('action_counts') or {}
-        profile_bio = data.get('profile_bio') or {}
-        website = data.get('website') or {}
-        pinned = data.get('pinned_items') or {}
-        translation = data.get('profile_translation') or {}
-        metadata = data.get('profile_metadata') or {}
-        notifications = data.get('notifications_settings') or {}
+        # v1.1 payloads (followers/list, friends/list via build_user_data) carry the
+        # flat legacy keys at top level too, e.g. ``location`` is a str there, not
+        # the new-shape ``{"location": ...}`` block. Ignore anything not a dict.
+        def _block(d: dict, key: str) -> dict:
+            value = d.get(key)
+            return value if isinstance(value, dict) else {}
+
+        legacy = _block(data, 'legacy')
+        core = _block(data, 'core')
+        avatar = _block(data, 'avatar')
+        banner = _block(data, 'banner')
+        location_data = _block(data, 'location')
+        dm_perms = _block(data, 'dm_permissions')
+        media_perms = _block(data, 'media_permissions')
+        verification = _block(data, 'verification')
+        privacy = _block(data, 'privacy')
+        relationship = _block(data, 'relationship_perspectives')
+        relationship_counts = _block(data, 'relationship_counts')
+        tweet_counts = _block(data, 'tweet_counts')
+        action_counts = _block(data, 'action_counts')
+        profile_bio = _block(data, 'profile_bio')
+        website = _block(data, 'website')
+        pinned = _block(data, 'pinned_items')
+        translation = _block(data, 'profile_translation')
+        metadata = _block(data, 'profile_metadata')
+        notifications = _block(data, 'notifications_settings')
 
         def pick(key: str, new_value, default):
             """``legacy[key]`` when X still sends it, else the new-shape value."""

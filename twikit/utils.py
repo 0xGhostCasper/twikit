@@ -199,7 +199,8 @@ def build_tweet_data(raw_data: dict) -> dict:
 def build_user_data(raw_data: dict) -> dict:
     return {
         **raw_data,
-        'rest_id': raw_data['id'],
+        # A string like every GraphQL rest_id (the v1.1 ``id`` is an int).
+        'rest_id': raw_data.get('id_str') or str(raw_data['id']),
         'is_blue_verified': raw_data.get('ext_is_blue_verified'),
         'legacy': {
             'created_at': raw_data.get('created_at'),

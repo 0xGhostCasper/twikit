@@ -100,3 +100,39 @@ def test_both_shapes_parse_the_same():
     new = User.from_data(None, NEW_SHAPE)
     for field in SHARED_FIELDS:
         assert getattr(old, field) == getattr(new, field), field
+
+
+# v1.1 friends/list and followers/list user (SB-001193). build_user_data spreads
+# the flat v1.1 keys to the top level, so ``location`` / ``url`` are strings there.
+V11_LIST_USER = {
+    "id": 3660707173,
+    "id_str": "3660707173",
+    "name": "cars",
+    "screen_name": "carsyntaylorr",
+    "location": "Vacaville, CA",
+    "description": "hi",
+    "url": "https://t.co/abc",
+    "entities": {"url": {"urls": []}, "description": {"urls": []}},
+    "protected": False,
+    "followers_count": 120,
+    "friends_count": 340,
+    "listed_count": 0,
+    "created_at": "Mon Sep 14 00:00:00 +0000 2015",
+    "favourites_count": 5,
+    "verified": False,
+    "statuses_count": 42,
+    "media_count": 3,
+    "profile_image_url_https": "https://pbs.twimg.com/profile_images/1/a_normal.jpg",
+    "status": {"id_str": "1", "text": "x"},
+}
+
+
+def test_v11_list_user_with_string_location() -> None:
+    from twikit.utils import build_user_data
+
+    user = User.from_data(None, build_user_data(V11_LIST_USER))
+    assert user.id == "3660707173"
+    assert user.screen_name == "carsyntaylorr"
+    assert user.location == "Vacaville, CA"
+    assert user.followers_count == 120
+    assert user.following_count == 340
