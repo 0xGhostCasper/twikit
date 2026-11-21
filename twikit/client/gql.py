@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from ..constants import (
@@ -24,6 +25,7 @@ from ..constants import (
     USER_FEATURES,
     USER_HIGHLIGHTS_TWEETS_FEATURES
 )
+from ..errors import NotFound, TwitterException
 from ..utils import flatten_params, get_query_id
 from .gql_registry import REGISTRY
 
@@ -32,6 +34,41 @@ if TYPE_CHECKING:
     from .client import Client
 
     ClientType = Client | GuestClient
+
+logger = logging.getLogger(__name__)
+
+# Query operations X serves only over POST. A GET for them gets an empty-body 404
+# straight from X's edge (~10 ms, no x-trace-id), whatever the queryId, variables
+# or transaction id; the same request as a POST JSON body answers normally.
+# 2026-11-21 ~04:00-04:45 UTC: UsersByRestIds, UsersByScreenNames and
+# ListLatestTweetsTimeline went POST-only for every pooled account at once
+# (verified: UsersByScreenNames GET 404 vs POST 200 on one session and IP). The
+# web client still GETs them, so X is moving accounts over in cohorts.
+POST_ONLY_QUERIES = frozenset({
+    'UsersByRestIds',
+    'UsersByScreenNames',
+    'ListLatestTweetsTimeline',
+})
+# Never retried as a POST on an empty 404: for SearchTimeline that 404 is also
+# X's ordinary "no results" answer, and on 2026-11-21 its POST answered
+# "Internal server error" for the same sessions, so a retry would only double
+# the search traffic.
+NO_POST_RETRY = frozenset({'SearchTimeline'})
+# Operations this process found POST-only at runtime (see ``GQLClient.gql_get``).
+_learned_post_only: set[str] = set()
+
+
+def _operation_name(url: str) -> str:
+    return url.rsplit('/', 1)[-1].split('?', 1)[0]
+
+
+def _is_empty_404(error: NotFound) -> bool:
+    return str(error).endswith('message: ""')
+
+
+def _answered(response) -> bool:
+    """A GraphQL answer with data and no errors: proof the POST route serves it."""
+    return isinstance(response, dict) and bool(response.get('data')) and not response.get('errors')
 
 
 class Endpoint:
@@ -150,7 +187,17 @@ class GQLClient:
         extra_params: dict | None = None,
         **kwargs
     ):
+        """Send a GraphQL query as X's web client does: GET, unless X serves it only over POST.
+
+        An empty-body 404 on a GET is retried once as a POST (except for
+        ``NO_POST_RETRY``). When that POST answers with data, the operation is
+        remembered as POST-only for the life of the process, so the next one X
+        moves over costs one extra request instead of an outage.
+        """
         url, features = REGISTRY.resolve(url, features)
+        name = _operation_name(url)
+        if name in POST_ONLY_QUERIES or name in _learned_post_only:
+            return await self._post(url, variables, features, headers, extra_params, **kwargs)
         params = {'variables': variables}
         if features is not None:
             params['features'] = features
@@ -158,7 +205,22 @@ class GQLClient:
             params |= extra_params
         if headers is None:
             headers = self.base._base_headers
-        return await self.base.get(url, params=flatten_params(params), headers=headers, **kwargs)
+        try:
+            return await self.base.get(url, params=flatten_params(params), headers=headers, **kwargs)
+        except NotFound as error:
+            if name in NO_POST_RETRY or not _is_empty_404(error):
+                raise
+            try:
+                result = await self._post(url, variables, features, headers, extra_params, **kwargs)
+            except TwitterException:
+                raise error from None
+            if _answered(result[0]):
+                _learned_post_only.add(name)
+                logger.warning(
+                    'GraphQL %s: GET answers an empty 404, POST works; sending it as POST from now on',
+                    name,
+                )
+            return result
 
     async def gql_post(
         self,
@@ -170,6 +232,10 @@ class GQLClient:
         **kwargs
     ):
         url, features = REGISTRY.resolve(url, features)
+        return await self._post(url, variables, features, headers, extra_data, **kwargs)
+
+    async def _post(self, url, variables, features, headers, extra_data, **kwargs):
+        """POST a resolved GraphQL URL with a JSON body ``{variables, queryId, features, ...}``."""
         data = {'variables': variables, 'queryId': get_query_id(url)}
         if features is not None:
             data['features'] = features
