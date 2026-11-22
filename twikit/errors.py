@@ -48,6 +48,12 @@ class TooManyRequests(TwitterException):
         else:
             self.rate_limit_reset = None
 
+class AccountStateError(TwitterException):
+    """The session's home page is not a logged-in app shell (suspended,
+    locked or logged-out account): x never serves the signing inputs for it.
+    An ACCOUNT problem — re-login or retire — not a parser or transient error."""
+
+
 class ServerError(TwitterException):
     """
     Exception raised for 5xx Server Error responses.

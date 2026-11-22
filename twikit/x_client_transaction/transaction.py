@@ -12,8 +12,11 @@ from .interpolate import interpolate
 from .rotation import convert_rotation_to_matrix
 from .utils import float_to_hex, is_odd, base64_encode, handle_x_migration
 
+# The signing chunk is ondemand.s on the logged-in build and sign.o on the
+# x-web build the logged-out shell serves (twscrape#379); accept both, and use
+# the matched chunk name in the CDN URL.
 ON_DEMAND_FILE_REGEX = re.compile(
-    r""",(\d+):["']ondemand\.s["']""",
+    r""",(\d+):["'](ondemand\.s|sign\.o)["']""",
     flags=(re.VERBOSE | re.MULTILINE),
 )
 ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
@@ -49,6 +52,20 @@ class ClientTransaction:
         home_page_response = await handle_x_migration(session, headers)
 
         self.home_page_response = self.validate_response(home_page_response)
+        # A 200 page that carries neither the verification meta nor any signing
+        # chunk is the logged-out x-web shell: the session is dead/suspended, and
+        # no amount of pool refreshing will mint a key from it.
+        _shell = str(self.home_page_response)
+        if (
+            not self.home_page_response.select_one("[name='twitter-site-verification']")
+            and not ON_DEMAND_FILE_REGEX.search(_shell)
+        ):
+            from twikit.errors import AccountStateError
+
+            raise AccountStateError(
+                "home not a logged-in app shell (no verification meta / signing "
+                "chunk: suspended/locked/logged-out account)"
+            )
         # Skip the expensive JS file fetch if indices were pre-populated
         # (e.g. by a shared bootstrap). The indices are session-independent
         # but the key/animation_key are derived from the session-specific
@@ -70,12 +87,12 @@ class ClientTransaction:
 
         on_demand_file = ON_DEMAND_FILE_REGEX.search(response_str)
         if on_demand_file:
-            on_demand_file_index = on_demand_file.group(1)
+            on_demand_file_index, chunk_name = on_demand_file.group(1), on_demand_file.group(2)
             hash_regex = re.compile(ON_DEMAND_HASH_PATTERN.format(on_demand_file_index))
             hash_match = hash_regex.search(response_str)
             if hash_match:
                 filename = hash_match.group(1)
-                on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{filename}a.js"
+                on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/{chunk_name}.{filename}a.js"
                 on_demand_file_response = await session.request(
                     method="GET", url=on_demand_file_url, headers=headers
                 )
