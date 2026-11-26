@@ -7,13 +7,17 @@ import base64
 import hashlib
 from typing import Union, List
 from functools import reduce
+from urllib.parse import urljoin
 from .cubic_curve import Cubic
 from .interpolate import interpolate
 from .rotation import convert_rotation_to_matrix
 from .utils import float_to_hex, is_odd, base64_encode, handle_x_migration
 
+# The signing chunk is ondemand.s on the logged-in build and sign.o on the
+# x-web build the logged-out shell serves (twscrape#379); accept both, and use
+# the matched chunk name in the CDN URL.
 ON_DEMAND_FILE_REGEX = re.compile(
-    r""",(\d+):["']ondemand\.s["']""",
+    r""",(\d+):["'](ondemand\.s|sign\.o)["']""",
     flags=(re.VERBOSE | re.MULTILINE),
 )
 ON_DEMAND_HASH_PATTERN = r',{}:["\']([0-9a-f]+)["\']'
@@ -33,6 +37,101 @@ def parse_key_byte_indices(ondemand_js: str) -> list[int]:
     return [int(i) for i in indices]
 
 
+# x-web (the Vite build x serves a growing share of logged-in accounts since
+# 2026-11-24) names no signing chunk in its page. The page loads
+# entry-client-<hash>.js; one of the chunks that one imports sets
+# x-client-transaction-id from a lazily imported chunk (11-26: `import(`./Bo_7AybE.js`)
+# .then(e=>e.default())`). That chunk is the old ondemand.s signer under a content
+# hash name: the same (a[N], 16) indices, different per build.
+X_WEB_ENTRY_REGEX = re.compile(
+    r"https://abs\.twimg\.com/x-web/x-web/entry-client-[A-Za-z0-9_-]+\.js"
+)
+_STATIC_IMPORT_REGEX = re.compile(r"""(?:\bfrom|\bimport)\s*["'`](\./[A-Za-z0-9_./-]+\.js)["'`]""")
+_LAZY_IMPORT_REGEX = re.compile(r"""\bimport\(\s*["'`](\./[A-Za-z0-9_./-]+\.js)["'`]\s*\)""")
+_DEFAULT_LAZY_IMPORT_REGEX = re.compile(
+    r"""\bimport\(\s*["'`](\./[A-Za-z0-9_./-]+\.js)["'`]\s*\)\.then\(\s*(\w+)\s*=>\s*\2\.default\(\)\s*\)"""
+)
+_TID_HEADER = "x-client-transaction-id"
+_FRAME_ID_REGEX = re.compile(r"loading-x-anim-\d+")
+# How far before the header name the signer's lazy import sits (11-26: ~650 chars).
+_TID_WINDOW = 2000
+# Most chunks fetched to find the signer: entry imports, then signer candidates.
+X_WEB_MAX_ENTRY_IMPORTS = 8
+X_WEB_MAX_SIGNER_CANDIDATES = 4
+
+
+def x_web_entry_url(page: str) -> Union[str, None]:
+    """The x-web entry-client URL a home page loads, or None on the classic build."""
+    match = X_WEB_ENTRY_REGEX.search(page)
+    return match.group(0) if match else None
+
+
+def signing_source(page: str) -> Union[str, None]:
+    """What identifies a home page's KEY_BYTE indices without fetching anything.
+
+    The classic build's ``ondemand.s``/``sign.o`` chunk hash, or the x-web entry
+    URL (it changes with every x-web release). Pages with the same source sign
+    with the same indices, so callers can cache them under it.
+    """
+    chunk = ON_DEMAND_FILE_REGEX.search(page)
+    if chunk:
+        file_hash = re.search(ON_DEMAND_HASH_PATTERN.format(chunk.group(1)), page)
+        if file_hash:
+            return file_hash.group(1)
+    return x_web_entry_url(page)
+
+
+def _unique(items):
+    seen = set()
+    out = []
+    for item in items:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def x_web_signer_candidates(chunk_js: str) -> list[str]:
+    """Relative URLs of the chunks a tid-setting chunk may load the signer from.
+
+    A lazy import that both sits just before an ``x-client-transaction-id``
+    reference and has the signer's loader shape (``import(...).then(e=>e.default())``)
+    comes first, then the other lazy imports near the header (closest first), then
+    the other loader-shaped ones.
+    """
+    near = []
+    for match in re.finditer(re.escape(_TID_HEADER), chunk_js):
+        window = chunk_js[max(0, match.start() - _TID_WINDOW):match.start()]
+        near.extend(reversed(_LAZY_IMPORT_REGEX.findall(window)[-3:]))
+    defaults = [m.group(1) for m in _DEFAULT_LAZY_IMPORT_REGEX.finditer(chunk_js)]
+    both = [c for c in near if c in defaults]
+    return _unique(both + near + defaults)
+
+
+async def find_x_web_signer(session, headers, page: str):
+    """``(url, js)`` of an x-web page's signing chunk, or None if it is not found.
+
+    Walks entry-client -> its static imports -> the one that sets
+    x-client-transaction-id -> its signer candidates, and returns the first
+    candidate whose code carries the strict (a[N], 16) indices.
+    """
+    entry = x_web_entry_url(page)
+    if entry is None:
+        return None
+    entry_js = (await session.request(method="GET", url=entry, headers=headers)).text
+    for rel in _unique(_STATIC_IMPORT_REGEX.findall(entry_js))[:X_WEB_MAX_ENTRY_IMPORTS]:
+        chunk_url = urljoin(entry, rel)
+        chunk_js = (await session.request(method="GET", url=chunk_url, headers=headers)).text
+        if _TID_HEADER not in chunk_js:
+            continue
+        for cand in x_web_signer_candidates(chunk_js)[:X_WEB_MAX_SIGNER_CANDIDATES]:
+            signer_url = urljoin(chunk_url, cand)
+            signer_js = (await session.request(method="GET", url=signer_url, headers=headers)).text
+            if INDICES_REGEX.search(signer_js):
+                return signer_url, signer_js
+    return None
+
+
 class ClientTransaction:
     ADDITIONAL_RANDOM_NUMBER = 3
     DEFAULT_KEYWORD = "obfiowerehiring"
@@ -49,6 +148,20 @@ class ClientTransaction:
         home_page_response = await handle_x_migration(session, headers)
 
         self.home_page_response = self.validate_response(home_page_response)
+        # A 200 page that carries neither the verification meta nor any signing
+        # chunk is the logged-out x-web shell: the session is dead/suspended, and
+        # no amount of pool refreshing will mint a key from it.
+        _shell = str(self.home_page_response)
+        if (
+            not self.home_page_response.select_one("[name='twitter-site-verification']")
+            and not ON_DEMAND_FILE_REGEX.search(_shell)
+        ):
+            from twikit.errors import AccountStateError
+
+            raise AccountStateError(
+                "home not a logged-in app shell (no verification meta / signing "
+                "chunk: suspended/locked/logged-out account)"
+            )
         # Skip the expensive JS file fetch if indices were pre-populated
         # (e.g. by a shared bootstrap). The indices are session-independent
         # but the key/animation_key are derived from the session-specific
@@ -70,16 +183,20 @@ class ClientTransaction:
 
         on_demand_file = ON_DEMAND_FILE_REGEX.search(response_str)
         if on_demand_file:
-            on_demand_file_index = on_demand_file.group(1)
+            on_demand_file_index, chunk_name = on_demand_file.group(1), on_demand_file.group(2)
             hash_regex = re.compile(ON_DEMAND_HASH_PATTERN.format(on_demand_file_index))
             hash_match = hash_regex.search(response_str)
             if hash_match:
                 filename = hash_match.group(1)
-                on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{filename}a.js"
+                on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/{chunk_name}.{filename}a.js"
                 on_demand_file_response = await session.request(
                     method="GET", url=on_demand_file_url, headers=headers
                 )
                 key_byte_indices = parse_key_byte_indices(str(on_demand_file_response.text))
+        elif x_web_entry_url(response_str):
+            signer = await find_x_web_signer(session, headers, response_str)
+            if signer is not None:
+                key_byte_indices = parse_key_byte_indices(signer[1])
         if not key_byte_indices:
             raise Exception("Couldn't get KEY_BYTE indices")
         return key_byte_indices[0], key_byte_indices[1:]
@@ -101,9 +218,15 @@ class ClientTransaction:
         return list(base64.b64decode(bytes(key, "utf-8")))
 
     def get_frames(self, response=None):
-        # loading-x-anim-0...loading-x-anim-3
+        # loading-x-anim-0...loading-x-anim-3. The x-web page also carries
+        # loading-x-anim-svgs (the frames' wrapper) and loading-x-anim-css, so
+        # take the numbered frames only.
         response = self.validate_response(response) or self.home_page_response
-        return response.select("[id^='loading-x-anim']")
+        return [
+            frame
+            for frame in response.select("[id^='loading-x-anim-']")
+            if _FRAME_ID_REGEX.fullmatch(frame.get("id", ""))
+        ]
 
     def get_2d_array(
         self, key_bytes: List[Union[float, int]], response, frames: bs4.ResultSet = None
